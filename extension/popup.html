@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Network Logger & Blocker</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      width: 450px;
+      min-height: 500px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      font-size: 14px;
+      background: #f5f5f5;
+    }
+    
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 20px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    
+    .header h1 {
+      font-size: 20px;
+      margin-bottom: 5px;
+    }
+    
+    .header p {
+      opacity: 0.9;
+      font-size: 12px;
+    }
+    
+    .tabs {
+      display: flex;
+      background: white;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    
+    .tab {
+      flex: 1;
+      padding: 12px;
+      text-align: center;
+      cursor: pointer;
+      border: none;
+      background: none;
+      font-size: 13px;
+      font-weight: 500;
+      color: #666;
+      transition: all 0.2s;
+    }
+    
+    .tab:hover {
+      background: #f5f5f5;
+    }
+    
+    .tab.active {
+      color: #667eea;
+      border-bottom: 2px solid #667eea;
+    }
+    
+    .tab-content {
+      display: none;
+      padding: 20px;
+      background: white;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    
+    .tab-content.active {
+      display: block;
+    }
+    
+    .section {
+      margin-bottom: 20px;
+    }
+    
+    .section-title {
+      font-weight: 600;
+      margin-bottom: 10px;
+      color: #333;
+      font-size: 14px;
+    }
+    
+    .toggle-group {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px;
+      background: #f9f9f9;
+      border-radius: 8px;
+      margin-bottom: 8px;
+    }
+    
+    .toggle-group label {
+      font-weight: 500;
+      color: #555;
+    }
+    
+    .switch {
+      position: relative;
+      width: 50px;
+      height: 24px;
+    }
+    
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: 0.3s;
+      border-radius: 24px;
+    }
+    
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: 0.3s;
+      border-radius: 50%;
+    }
+    
+    input:checked + .slider {
+      background-color: #667eea;
+    }
+    
+    input:checked + .slider:before {
+      transform: translateX(26px);
+    }
+    
+    textarea {
+      width: 100%;
+      min-height: 100px;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 13px;
+      resize: vertical;
+    }
+    
+    button {
+      padding: 10px 16px;
+      background: #667eea;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 13px;
+      transition: background 0.2s;
+    }
+    
+    button:hover {
+      background: #5568d3;
+    }
+    
+    button.secondary {
+      background: #6c757d;
+    }
+    
+    button.secondary:hover {
+      background: #5a6268;
+    }
+    
+    button.danger {
+      background: #dc3545;
+    }
+    
+    button.danger:hover {
+      background: #c82333;
+    }
+    
+    .button-group {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-top: 10px;
+    }
+    
+    .stat-card {
+      background: linear-gradient(135deg, #667eea22 0%, #764ba222 100%);
+      padding: 15px;
+      border-radius: 8px;
+      border: 1px solid #e0e0e0;
+    }
+    
+    .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #667eea;
+      margin-bottom: 5px;
+    }
+    
+    .stat-label {
+      font-size: 11px;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
+    .info-box {
+      background: #e3f2fd;
+      border-left: 4px solid #2196f3;
+      padding: 12px;
+      margin-top: 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #555;
+    }
+    
+    .success-box {
+      background: #d4edda;
+      border-left: 4px solid #28a745;
+      padding: 12px;
+      margin-top: 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #155724;
+    }
+    
+    input[type="text"], input[type="number"] {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 13px;
+      margin-bottom: 10px;
+    }
+    
+    .export-buttons {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 15px;
+    }
+    
+    .extension-item {
+      background: #f9f9f9;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 8px;
+      transition: all 0.2s;
+    }
+    
+    .extension-item:hover {
+      background: #f0f0f0;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    }
+    
+    .extension-item.suspicious {
+      border-left: 4px solid #ff9800;
+      background: #fff3e0;
+    }
+    
+    .extension-item.high-risk {
+      border-left: 4px solid #f44336;
+      background: #ffebee;
+    }
+    
+    .extension-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    
+    .extension-name {
+      font-weight: 600;
+      color: #333;
+      font-size: 14px;
+    }
+    
+    .extension-version {
+      color: #999;
+      font-size: 11px;
+      margin-left: 8px;
+    }
+    
+    .extension-badges {
+      display: flex;
+      gap: 5px;
+    }
+    
+    .badge {
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    
+    .badge.enabled {
+      background: #4caf50;
+      color: white;
+    }
+    
+    .badge.disabled {
+      background: #9e9e9e;
+      color: white;
+    }
+    
+    .badge.development {
+      background: #ff9800;
+      color: white;
+    }
+    
+    .badge.risk-high {
+      background: #f44336;
+      color: white;
+    }
+    
+    .badge.risk-medium {
+      background: #ff9800;
+      color: white;
+    }
+    
+    .badge.risk-low {
+      background: #4caf50;
+      color: white;
+    }
+    
+    .extension-details {
+      font-size: 12px;
+      color: #666;
+      margin-top: 5px;
+    }
+    
+    .extension-warnings {
+      margin-top: 8px;
+      padding: 8px;
+      background: #fff;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+    
+    .extension-warnings ul {
+      margin: 5px 0 0 20px;
+      padding: 0;
+    }
+    
+    .extension-warnings li {
+      margin: 3px 0;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🛡️ Network Logger & Blocker</h1>
+    <p>Enhanced edition with statistics & backup</p>
+  </div>
+  
+  <div class="tabs">
+    <button class="tab active" data-tab="blocking">Blocking</button>
+    <button class="tab" data-tab="youtube">YouTube</button>
+    <button class="tab" data-tab="extensions">Extensions</button>
+    <button class="tab" data-tab="stats">Statistics</button>
+    <button class="tab" data-tab="settings">Settings</button>
+  </div>
+  
+  <!-- Blocking Tab -->
+  <div id="blocking-tab" class="tab-content active">
+    <div class="section">
+      <div class="toggle-group">
+        <label for="enableBlocking">Enable URL Blocking</label>
+        <label class="switch">
+          <input type="checkbox" id="enableBlocking">
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Block List (one pattern per line)</div>
+      <textarea id="blockList" placeholder=".*tracker\..*&#10;.*analytics\..*&#10;.*ads\..*"></textarea>
+      <div class="button-group">
+        <button id="saveBlockList">Save Block List</button>
+        <button id="clearBlockList" class="secondary">Clear</button>
+      </div>
+      <div class="info-box">
+        Supports regex patterns. Examples:<br>
+        • <code>.*tracker\..*</code> - blocks all tracker domains<br>
+        • <code>^https://ads\..*</code> - blocks ads subdomain
+      </div>
+    </div>
+  </div>
+  
+  <!-- YouTube Tab -->
+  <div id="youtube-tab" class="tab-content">
+    <div class="section">
+      <div class="toggle-group">
+        <label for="youtubeChannelBlocking">Enable YouTube Channel Blocking</label>
+        <label class="switch">
+          <input type="checkbox" id="youtubeChannelBlocking">
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Blocked Channels (one per line)</div>
+      <textarea id="blockedYouTubeChannels" placeholder="@channelhandle&#10;UCxxxxxxxxxxxxxxxxxx&#10;ChannelName"></textarea>
+      <div class="button-group">
+        <button id="saveYouTubeChannels">Save Channels</button>
+        <button id="clearYouTubeChannels" class="secondary">Clear</button>
+      </div>
+      <div class="info-box">
+        Supported formats:<br>
+        • <code>@channelhandle</code><br>
+        • <code>UCxxxxxxxxxxxxxxxxxx</code> (Channel ID)<br>
+        • <code>ChannelName</code> (username)
+      </div>
+    </div>
+  </div>
+  
+  <!-- Extensions Tab -->
+  <div id="extensions-tab" class="tab-content">
+    <div class="section">
+      <div class="section-title">Installed Extensions</div>
+      
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-value" id="totalExtensions">0</div>
+          <div class="stat-label">Total</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="enabledExtensions">0</div>
+          <div class="stat-label">Enabled</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="suspiciousExtensions">0</div>
+          <div class="stat-label">Suspicious</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="extensionChanges">0</div>
+          <div class="stat-label">Changes</div>
+        </div>
+      </div>
+      
+      <div class="button-group">
+        <button id="refreshExtensions">Refresh List</button>
+        <button id="scanExtensions" class="secondary">Security Scan</button>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Extension List</div>
+      <div id="extensionList" style="max-height: 300px; overflow-y: auto;">
+        <div style="text-align: center; padding: 20px; color: #999;">
+          Click "Refresh List" to load extensions
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="toggle-group">
+        <label for="extensionMonitoring">Enable Extension Monitoring</label>
+        <label class="switch">
+          <input type="checkbox" id="extensionMonitoring" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="info-box">
+        Monitors and logs when extensions are installed, removed, enabled, or disabled.
+      </div>
+    </div>
+  </div>
+  
+  <!-- Statistics Tab -->
+  <div id="stats-tab" class="tab-content">
+    <div class="section">
+      <div class="section-title">Session Statistics</div>
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-value" id="totalRequests">0</div>
+          <div class="stat-label">Total Requests</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="blockedRequests">0</div>
+          <div class="stat-label">Blocked</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="loggedRequests">0</div>
+          <div class="stat-label">Logged</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="successfulUploads">0</div>
+          <div class="stat-label">Uploaded</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="bufferSize">0</div>
+          <div class="stat-label">Buffer Size</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="failedUploads">0</div>
+          <div class="stat-label">Failed</div>
+        </div>
+      </div>
+      
+      <div class="button-group">
+        <button id="refreshStats">Refresh</button>
+        <button id="clearStats" class="secondary">Reset Statistics</button>
+        <button id="flushLogs" class="secondary">Flush Logs Now</button>
+      </div>
+      
+      <div id="statsInfo" class="info-box" style="margin-top: 15px; display: none;"></div>
+    </div>
+  </div>
+  
+  <!-- Settings Tab -->
+  <div id="settings-tab" class="tab-content">
+    <div class="section">
+      <div class="section-title">Server Configuration</div>
+      <input type="text" id="serverUrl" placeholder="https://your-server.com/api/logs">
+      <button id="saveServerUrl">Save Server URL</button>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Advanced Settings</div>
+      
+      <div class="toggle-group">
+        <label for="enableLocalBackup">Enable Local Backup</label>
+        <label class="switch">
+          <input type="checkbox" id="enableLocalBackup">
+          <span class="slider"></span>
+        </label>
+      </div>
+      
+      <div class="toggle-group">
+        <label for="enableDomainWhitelist">Enable Domain Whitelist</label>
+        <label class="switch">
+          <input type="checkbox" id="enableDomainWhitelist">
+          <span class="slider"></span>
+        </label>
+      </div>
+      
+      <div style="margin-top: 10px;">
+        <label for="maxBufferSize" style="display: block; margin-bottom: 5px;">Max Buffer Size</label>
+        <input type="number" id="maxBufferSize" value="1000" min="100" max="10000">
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Domain Whitelist</div>
+      <textarea id="domainWhitelist" placeholder="example.com&#10;*.cdn.com"></textarea>
+      <button id="saveDomainWhitelist">Save Whitelist</button>
+      <div class="info-box">
+        Domains that won't be logged. Use <code>*.</code> for subdomains.
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Import / Export</div>
+      <div class="export-buttons">
+        <button id="exportConfig">📤 Export Config</button>
+        <button id="importConfig">📥 Import Config</button>
+        <button id="exportBackup">💾 Export Backup</button>
+        <button id="clearBackup" class="danger">🗑️ Clear Backup</button>
+      </div>
+      <input type="file" id="importFile" style="display: none;" accept=".json">
+    </div>
+  </div>
+  
+  <script src="popup-enhanced.js"></script>
+</body>
+</html>

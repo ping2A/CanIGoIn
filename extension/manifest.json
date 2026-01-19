@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "Network Logger & Blocker",
+  "version": "3.0.0",
+  "description": "Complete network monitoring with clickfix detection, extension monitoring, statistics, backup, and blocking",
+  "permissions": [
+    "webRequest",
+    "webNavigation",
+    "storage",
+    "scripting",
+    "tabs",
+    "unlimitedStorage",
+    "management"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["youtube-blocker.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}
