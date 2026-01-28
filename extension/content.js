@@ -3,7 +3,7 @@
 // are tricked into copying and pasting malicious code into the browser console
 (function() {
   'use strict';
-  
+
   // Track loaded scripts
   const loadedScripts = new Set();
 

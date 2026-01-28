@@ -153,6 +153,7 @@ class ExtensionMonitor {
       
       // Format to match server's ExtensionEvent structure
       const payload = {
+        client_id: (typeof clientId !== 'undefined' && clientId) ? clientId : null,
         session_id: sessionId || 'unknown',  // Server expects session_id (snake_case)
         timestamp: change.timestamp,
         user_agent: navigator.userAgent,
@@ -177,6 +178,7 @@ class ExtensionMonitor {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
+            client_id: (typeof clientId !== 'undefined' && clientId) ? clientId : null,
             session_id: sessionId || 'unknown',  // Server expects session_id
             timestamp: change.timestamp,
             user_agent: navigator.userAgent,

@@ -36,7 +36,12 @@ function loadSettings() {
     'enableLocalBackup',
     'maxBufferSize',
     'domainWhitelist',
-    'enableDomainWhitelist'
+    'enableDomainWhitelist',
+    'enableReportUrls',
+    'enableJsExecution',
+    'enableClickfix',
+    'extensionMonitoring',
+    'clientId'
   ], (result) => {
     // Blocking tab
     if (result.blockList) {
@@ -57,6 +62,13 @@ function loadSettings() {
     // Settings tab
     if (result.serverUrl) {
       document.getElementById('serverUrl').value = result.serverUrl;
+    } else {
+      // Default
+      document.getElementById('serverUrl').value = 'http://localhost:8080/api/logs';
+    }
+    if (result.clientId) {
+      const el = document.getElementById('clientId');
+      if (el) el.value = result.clientId;
     }
     if (result.enableLocalBackup !== undefined) {
       document.getElementById('enableLocalBackup').checked = result.enableLocalBackup;
@@ -69,6 +81,33 @@ function loadSettings() {
     }
     if (result.enableDomainWhitelist !== undefined) {
       document.getElementById('enableDomainWhitelist').checked = result.enableDomainWhitelist;
+    }
+    // Features
+    if (result.enableReportUrls !== undefined) {
+      document.getElementById('enableReportUrls').checked = result.enableReportUrls;
+    } else {
+      // Disabled by default (only clickfix + JS execution enabled by default)
+      document.getElementById('enableReportUrls').checked = false;
+    }
+    if (result.enableJsExecution !== undefined) {
+      document.getElementById('enableJsExecution').checked = result.enableJsExecution;
+    } else {
+      document.getElementById('enableJsExecution').checked = true;
+    }
+    if (result.enableClickfix !== undefined) {
+      document.getElementById('enableClickfix').checked = result.enableClickfix;
+    } else {
+      document.getElementById('enableClickfix').checked = true;
+    }
+    const extMon = result.extensionMonitoring === true ? true : false;
+    document.getElementById('extensionMonitoring').checked = extMon;
+    const extMonFeatures = document.getElementById('extensionMonitoringFeatures');
+    if (extMonFeatures) extMonFeatures.checked = extMon;
+    // Enable all = all four are checked
+    const enableAll = document.getElementById('enableAllFeatures');
+    if (enableAll) {
+      enableAll.checked = result.enableReportUrls !== false && result.enableJsExecution !== false &&
+        result.enableClickfix !== false && extMon;
     }
   });
 }
@@ -253,15 +292,14 @@ document.getElementById('scanExtensions').addEventListener('click', () => {
 });
 
 document.getElementById('extensionMonitoring').addEventListener('change', (e) => {
-  chrome.runtime.sendMessage({ 
-    type: 'toggleExtensionMonitoring',
-    enabled: e.target.checked 
-  }, (response) => {
-    if (response.success) {
-      showNotification(
-        `Extension monitoring ${response.enabled ? 'enabled' : 'disabled'}`,
-        'success'
-      );
+  const on = e.target.checked;
+  chrome.storage.local.set({ extensionMonitoring: on });
+  const extMonFeatures = document.getElementById('extensionMonitoringFeatures');
+  if (extMonFeatures) extMonFeatures.checked = on;
+  updateEnableAllCheckbox();
+  chrome.runtime.sendMessage({ type: 'toggleExtensionMonitoring', enabled: on }, (response) => {
+    if (response && response.success) {
+      showNotification(`Extension monitoring ${on ? 'enabled' : 'disabled'}`, 'success');
     }
   });
 });
@@ -364,12 +402,95 @@ document.getElementById('saveServerUrl').addEventListener('click', () => {
   });
 });
 
+// Client ID controls
+document.getElementById('generateClientId').addEventListener('click', () => {
+  const newId = `client-${Date.now()}-${Math.random().toString(36).slice(2, 12)}${Math.random().toString(36).slice(2, 12)}`;
+  chrome.storage.local.set({ clientId: newId }, () => {
+    const el = document.getElementById('clientId');
+    if (el) el.value = newId;
+    showNotification('Client ID generated', 'success');
+  });
+});
+
+document.getElementById('copyClientId').addEventListener('click', async () => {
+  const el = document.getElementById('clientId');
+  const value = el ? el.value : '';
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+    showNotification('Client ID copied', 'success');
+  } catch (e) {
+    showNotification('Copy failed (clipboard blocked)', 'warning');
+  }
+});
+
 document.getElementById('enableLocalBackup').addEventListener('change', (e) => {
   chrome.storage.local.set({ enableLocalBackup: e.target.checked });
 });
 
 document.getElementById('enableDomainWhitelist').addEventListener('change', (e) => {
   chrome.storage.local.set({ enableDomainWhitelist: e.target.checked });
+});
+
+// Features (report URLs, JS execution, clickfix, extension monitoring)
+document.getElementById('enableAllFeatures').addEventListener('change', (e) => {
+  const on = e.target.checked;
+  chrome.storage.local.set({
+    enableReportUrls: on,
+    enableJsExecution: on,
+    enableClickfix: on,
+    extensionMonitoring: on
+  }, () => {
+    document.getElementById('enableReportUrls').checked = on;
+    document.getElementById('enableJsExecution').checked = on;
+    document.getElementById('enableClickfix').checked = on;
+    document.getElementById('extensionMonitoring').checked = on;
+    const extMonFeatures = document.getElementById('extensionMonitoringFeatures');
+    if (extMonFeatures) extMonFeatures.checked = on;
+    if (on) {
+      chrome.runtime.sendMessage({ type: 'toggleExtensionMonitoring', enabled: true });
+    } else {
+      chrome.runtime.sendMessage({ type: 'toggleExtensionMonitoring', enabled: false });
+    }
+    showNotification(on ? 'All features enabled' : 'Features unchanged (toggle individually to disable)', on ? 'success' : 'info');
+  });
+});
+
+function updateEnableAllCheckbox() {
+  const enableAll = document.getElementById('enableAllFeatures');
+  if (!enableAll) return;
+  const allOn = document.getElementById('enableReportUrls').checked &&
+    document.getElementById('enableJsExecution').checked &&
+    document.getElementById('enableClickfix').checked &&
+    (document.getElementById('extensionMonitoringFeatures') && document.getElementById('extensionMonitoringFeatures').checked);
+  enableAll.checked = !!allOn;
+}
+
+document.getElementById('enableReportUrls').addEventListener('change', (e) => {
+  chrome.storage.local.set({ enableReportUrls: e.target.checked });
+  updateEnableAllCheckbox();
+});
+
+document.getElementById('enableJsExecution').addEventListener('change', (e) => {
+  chrome.storage.local.set({ enableJsExecution: e.target.checked });
+  updateEnableAllCheckbox();
+});
+
+document.getElementById('enableClickfix').addEventListener('change', (e) => {
+  chrome.storage.local.set({ enableClickfix: e.target.checked });
+  updateEnableAllCheckbox();
+});
+
+document.getElementById('extensionMonitoringFeatures').addEventListener('change', (e) => {
+  const on = e.target.checked;
+  chrome.storage.local.set({ extensionMonitoring: on });
+  chrome.runtime.sendMessage({ type: 'toggleExtensionMonitoring', enabled: on }, (response) => {
+    if (response && response.success) {
+      document.getElementById('extensionMonitoring').checked = on;
+      updateEnableAllCheckbox();
+      showNotification(`Extension monitoring ${on ? 'enabled' : 'disabled'}`, 'success');
+    }
+  });
 });
 
 document.getElementById('maxBufferSize').addEventListener('change', (e) => {

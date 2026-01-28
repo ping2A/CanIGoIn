@@ -545,9 +545,61 @@
   <!-- Settings Tab -->
   <div id="settings-tab" class="tab-content">
     <div class="section">
+      <div class="section-title">Features (reporting to server)</div>
+      <div class="toggle-group">
+        <label for="enableAllFeatures">Enable all features</label>
+        <label class="switch">
+          <input type="checkbox" id="enableAllFeatures">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="toggle-group">
+        <label for="enableReportUrls">Report URLs (network requests)</label>
+        <label class="switch">
+          <input type="checkbox" id="enableReportUrls">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="toggle-group">
+        <label for="enableJsExecution">JS execution (eval, Function, script load)</label>
+        <label class="switch">
+          <input type="checkbox" id="enableJsExecution">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="toggle-group">
+        <label for="enableClickfix">Security / clickfix (clipboard, copy)</label>
+        <label class="switch">
+          <input type="checkbox" id="enableClickfix">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="toggle-group">
+        <label for="extensionMonitoringFeatures">Extension monitoring</label>
+        <label class="switch">
+          <input type="checkbox" id="extensionMonitoringFeatures">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="info-box">
+        When "Enable all features" is on, all reporting is sent to the server. Server requests use a 5s timeout so the extension does not hang if the server is unavailable.
+      </div>
+    </div>
+    <div class="section">
       <div class="section-title">Server Configuration</div>
       <input type="text" id="serverUrl" placeholder="http://localhost:8080/api/logs">
       <button id="saveServerUrl">Save Server URL</button>
+      <div style="margin-top: 12px;">
+        <div class="section-title" style="margin-bottom: 8px;">Client ID</div>
+        <input type="text" id="clientId" readonly>
+        <div class="button-group">
+          <button id="generateClientId" class="secondary">Generate new ID</button>
+          <button id="copyClientId" class="secondary">Copy ID</button>
+        </div>
+        <div class="info-box" style="margin-top: 10px;">
+          This ID identifies this browser/installation and is sent to the server as <code>client_id</code>.
+        </div>
+      </div>
       <div class="info-box" style="margin-top: 10px;">
         Enter your server URL. Examples:<br>
         • <code>http://localhost:8080/api/logs</code> (local development)<br>

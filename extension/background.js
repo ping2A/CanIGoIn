@@ -4,12 +4,12 @@
 
 // Configuration
 const CONFIG = {
-  serverUrl: 'https://your-server.com/api/logs',
+  serverUrl: 'http://localhost:8080/api/logs',
   batchSize: 50,
   batchInterval: 5000,
-  enableBlocking: true,
+  enableBlocking: false,
   blockList: [],
-  youtubeChannelBlocking: true,
+  youtubeChannelBlocking: false,
   blockedYouTubeChannels: [],
   
   // Advanced settings
@@ -23,7 +23,13 @@ const CONFIG = {
   captureResourceTiming: true,   // Capture performance data
   sanitizeSensitiveData: true,   // Remove passwords, tokens
   enableStatistics: true,        // Track statistics
-  maxLocalStorageSize: 10 * 1024 * 1024 // 10MB max local storage
+  maxLocalStorageSize: 10 * 1024 * 1024, // 10MB max local storage
+  // Feature toggles (no slow delay when server unavailable)
+  fetchTimeoutMs: 5000,          // Abort fetch after 5s so extension never hangs
+  // Reporting features (can be toggled via "Enable all features" in popup)
+  enableReportUrls: false,       // Report network requests / URLs to server (OFF by default)
+  enableJsExecution: true,       // Report JS execution (eval, Function, script load)
+  enableClickfix: true         // Report clickfix / security (clipboard, copy) detections
 };
 
 // Predefined whitelist of major domains to reduce server load
@@ -110,6 +116,7 @@ const PREDEFINED_WHITELIST = [
 let logBuffer = [];
 let failedBatches = [];
 let sessionId = generateSessionId();
+let clientId = null;
 let scheduledFlushTimeout = null;
 
 // Statistics
@@ -140,17 +147,22 @@ let extensionMonitoringEnabled = true;
 // Load configuration from storage
 chrome.storage.local.get([
   'blockList', 'enableBlocking', 'blockedYouTubeChannels', 'youtubeChannelBlocking',
-  'serverUrl', 'maxBufferSize', 'enableLocalBackup', 'domainWhitelist', 'enableDomainWhitelist'
+  'serverUrl', 'maxBufferSize', 'enableLocalBackup', 'domainWhitelist', 'enableDomainWhitelist',
+  'enableReportUrls', 'enableJsExecution', 'enableClickfix', 'extensionMonitoring',
+  'clientId'
 ], (result) => {
   if (result.blockList) CONFIG.blockList = result.blockList;
   if (result.enableBlocking !== undefined) CONFIG.enableBlocking = result.enableBlocking;
   if (result.blockedYouTubeChannels) CONFIG.blockedYouTubeChannels = result.blockedYouTubeChannels;
   if (result.youtubeChannelBlocking !== undefined) CONFIG.youtubeChannelBlocking = result.youtubeChannelBlocking;
-  if (result.serverUrl && result.serverUrl !== 'https://your-server.com/api/logs') {
+  if (result.serverUrl) {
     CONFIG.serverUrl = result.serverUrl;
     console.log('✅ Server URL loaded from storage:', CONFIG.serverUrl);
   } else {
-    console.warn('⚠️ No server URL configured. Please set it in the Settings tab.');
+    // Default to local dev server
+    CONFIG.serverUrl = 'http://localhost:8080/api/logs';
+    chrome.storage.local.set({ serverUrl: CONFIG.serverUrl });
+    console.log('✅ Default Server URL set:', CONFIG.serverUrl);
   }
   if (result.maxBufferSize) CONFIG.maxBufferSize = result.maxBufferSize;
   if (result.enableLocalBackup !== undefined) CONFIG.enableLocalBackup = result.enableLocalBackup;
@@ -158,9 +170,20 @@ chrome.storage.local.get([
   if (result.enableDomainWhitelist !== undefined) {
     CONFIG.enableDomainWhitelist = result.enableDomainWhitelist;
   } else {
-    // Enable by default if not set (first time user)
     CONFIG.enableDomainWhitelist = true;
     chrome.storage.local.set({ enableDomainWhitelist: true });
+  }
+  if (result.enableReportUrls !== undefined) CONFIG.enableReportUrls = result.enableReportUrls;
+  if (result.enableJsExecution !== undefined) CONFIG.enableJsExecution = result.enableJsExecution;
+  if (result.enableClickfix !== undefined) CONFIG.enableClickfix = result.enableClickfix;
+  if (result.extensionMonitoring !== undefined) extensionMonitoringEnabled = result.extensionMonitoring;
+
+  // Client ID (persistent identifier for this browser/installation)
+  if (result.clientId) {
+    clientId = result.clientId;
+  } else {
+    clientId = generateClientId();
+    chrome.storage.local.set({ clientId });
   }
   
   console.log('✅ Configuration loaded:', CONFIG);
@@ -174,32 +197,47 @@ chrome.storage.onChanged.addListener((changes) => {
       CONFIG[key] = changes[key].newValue;
       console.log(`⚙️ Config updated: ${key} =`, changes[key].newValue);
       
-      // Special handling for serverUrl changes
       if (key === 'serverUrl' && changes[key].newValue) {
         const newUrl = changes[key].newValue;
         if (newUrl && newUrl !== 'https://your-server.com/api/logs') {
           console.log(`✅ Server URL updated to: ${newUrl}`);
-          // Test the connection
           testServerConnection(newUrl);
         }
       }
     }
+    if (key === 'extensionMonitoring') {
+      extensionMonitoringEnabled = changes[key].newValue;
+      console.log(`⚙️ Extension monitoring: ${extensionMonitoringEnabled ? 'ON' : 'OFF'}`);
+    }
+    if (key === 'clientId') {
+      clientId = changes[key].newValue;
+      console.log(`🆔 Client ID updated: ${clientId}`);
+    }
   });
 });
+
+// Fetch with timeout so extension never hangs when server is unavailable
+function fetchWithTimeout(url, options = {}, timeoutMs = null) {
+  const ms = timeoutMs != null ? timeoutMs : CONFIG.fetchTimeoutMs;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), ms);
+  const signal = options.signal || controller.signal;
+  return fetch(url, { ...options, signal })
+    .then(response => {
+      clearTimeout(timeoutId);
+      return response;
+    })
+    .catch(err => {
+      clearTimeout(timeoutId);
+      throw err;
+    });
+}
 
 // Test server connection
 async function testServerConnection(url) {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-    
     const healthUrl = url.replace('/api/logs', '/health');
-    const response = await fetch(healthUrl, {
-      method: 'GET',
-      signal: controller.signal
-    });
-    
-    clearTimeout(timeoutId);
+    const response = await fetchWithTimeout(healthUrl, { method: 'GET' }, 5000);
     
     if (response.ok) {
       console.log('✅ Server connection test successful:', healthUrl);
@@ -221,6 +259,16 @@ async function testServerConnection(url) {
 
 function generateSessionId() {
   return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+function generateClientId() {
+  try {
+    if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
+      return globalThis.crypto.randomUUID();
+    }
+  } catch (e) {}
+  // Fallback: not a UUID, but stable-enough random ID
+  return `client-${Date.now()}-${Math.random().toString(36).slice(2, 12)}${Math.random().toString(36).slice(2, 12)}`;
 }
 
 function isWhitelisted(url) {
@@ -567,6 +615,13 @@ chrome.webNavigation.onCompleted.addListener((details) => {
 // ============================================================================
 
 function logEntry(entry) {
+  // Feature toggles: skip if feature is disabled
+  const entryType = entry.type || '';
+  if (entryType === 'clickfix_detection' && !CONFIG.enableClickfix) return;
+  if (entryType === 'javascript_execution' && !CONFIG.enableJsExecution) return;
+  const isNetworkLog = entry.requestId || (entry.url && entryType !== 'clickfix_detection' && entryType !== 'javascript_execution');
+  if (isNetworkLog && !CONFIG.enableReportUrls) return;
+
   const sanitized = sanitizeData(entry);
   
   statistics.loggedRequests++;
@@ -625,6 +680,7 @@ async function sendLogBatch() {
   // Send network logs to /api/logs
   if (networkLogs.length > 0) {
     const payload = {
+      client_id: clientId || null,
       session_id: sessionId,  // Server expects session_id (snake_case)
       timestamp: new Date().toISOString(),
       user_agent: navigator.userAgent,
@@ -645,24 +701,33 @@ async function sendLogBatch() {
     await sendWithRetry(payload, 0, CONFIG.serverUrl);
   }
   
-  // Send special events (clickfix, javascript_execution) to /api/extensions
+  // Send special events to dedicated endpoints:
+  // - Security events (clickfix, extension security scans) -> /api/security
+  // - Other extension events (javascript_execution, extension install/uninstall/etc) -> /api/extensions
   if (specialEvents.length > 0) {
     for (const event of specialEvents) {
       try {
-        const extensionUrl = CONFIG.serverUrl.replace('/api/logs', '/api/extensions');
+        const eventType = event.type || event.event_type || 'unknown_event';
+        const isSecurityEvent =
+          eventType === 'clickfix_detection' ||
+          eventType === 'extension_security_scan';
+
+        const endpoint = isSecurityEvent ? '/api/security' : '/api/extensions';
+        const extensionUrl = CONFIG.serverUrl.replace('/api/logs', endpoint);
         const extensionPayload = {
+          client_id: clientId || null,
           session_id: sessionId,
           timestamp: event.timestamp || new Date().toISOString(),
           user_agent: navigator.userAgent,
-          event_type: event.type || 'unknown_event',
+          event_type: eventType,
           data: event
         };
         
-        await fetch(extensionUrl, {
+        await fetchWithTimeout(extensionUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(extensionPayload)
-        });
+        }, CONFIG.fetchTimeoutMs);
       } catch (error) {
         console.error('Failed to send special event:', error);
       }
@@ -673,14 +738,14 @@ async function sendLogBatch() {
 async function sendWithRetry(payload, attempt, url = null) {
   const targetUrl = url || CONFIG.serverUrl;
   try {
-    const response = await fetch(targetUrl, {
+    const response = await fetchWithTimeout(targetUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         ...(CONFIG.enableCompression && { 'Content-Encoding': 'gzip' })
       },
       body: JSON.stringify(payload)
-    });
+    }, CONFIG.fetchTimeoutMs);
     
     if (!response.ok) {
       throw new Error(`Server returned ${response.status}: ${response.statusText}`);
@@ -1234,6 +1299,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   
   if (message.type === 'toggleExtensionMonitoring') {
     extensionMonitoringEnabled = message.enabled;
+    chrome.storage.local.set({ extensionMonitoring: message.enabled });
     sendResponse({ success: true, enabled: extensionMonitoringEnabled });
     return true;
   }

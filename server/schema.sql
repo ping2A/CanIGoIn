@@ -6,6 +6,7 @@
 -- Network Logs Table
 CREATE TABLE IF NOT EXISTS network_logs (
     id BIGSERIAL PRIMARY KEY,
+    client_id VARCHAR(200),
     session_id VARCHAR(100) NOT NULL,
     timestamp TIMESTAMPTZ NOT NULL,
     user_agent TEXT,
@@ -41,6 +42,7 @@ CREATE TABLE IF NOT EXISTS blocklist_patterns (
 -- Extension Events Table
 CREATE TABLE IF NOT EXISTS extension_events (
     id BIGSERIAL PRIMARY KEY,
+    client_id VARCHAR(200),
     session_id VARCHAR(100) NOT NULL,
     timestamp TIMESTAMPTZ NOT NULL,
     user_agent TEXT,

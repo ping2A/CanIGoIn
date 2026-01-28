@@ -41,6 +41,8 @@ struct Args {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct LogEntry {
+    #[serde(default)]
+    client_id: Option<String>,
     session_id: String,
     timestamp: String,
     user_agent: String,
@@ -79,6 +81,8 @@ struct Blocklist {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ExtensionEvent {
+    #[serde(default)]
+    client_id: Option<String>,
     session_id: String,
     timestamp: String,
     user_agent: String,
@@ -193,9 +197,10 @@ mod production {
                 sqlx::query!(
                     r#"
                     INSERT INTO network_logs 
-                    (session_id, timestamp, user_agent, request_id, url, method, request_type, blocked, block_reason)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    (client_id, session_id, timestamp, user_agent, request_id, url, method, request_type, blocked, block_reason)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                     "#,
+                    entry.client_id,
                     entry.session_id,
                     entry.timestamp,
                     entry.user_agent,
@@ -263,9 +268,10 @@ mod production {
             sqlx::query!(
                 r#"
                 INSERT INTO extension_events 
-                (session_id, timestamp, user_agent, event_type, data)
-                VALUES ($1, $2, $3, $4, $5)
+                (client_id, session_id, timestamp, user_agent, event_type, data)
+                VALUES ($1, $2, $3, $4, $5, $6)
                 "#,
+                event.client_id,
                 event.session_id,
                 event.timestamp,
                 event.user_agent,
@@ -579,7 +585,7 @@ async fn post_extensions_simple(
     // Log event data
     log::debug!("  Event data from IP {}: {:?}", client_ip, extension_event.data);
     
-    // Log specific event types at appropriate levels
+    // Log all event types at visible level so examples and tests are easy to verify
     match extension_event.event_type.as_str() {
         "extension_installed" => {
             log::warn!("🆕 EXTENSION INSTALLED from IP {}: {:?}", client_ip, extension_event.data);
@@ -590,8 +596,11 @@ async fn post_extensions_simple(
         "clickfix_detection" => {
             log::error!("🚨 CLICKFIX DETECTED from IP {}: {:?}", client_ip, extension_event.data);
         }
+        "javascript_execution" => {
+            log::info!("📜 JS EXECUTION from IP {}: {:?}", client_ip, extension_event.data);
+        }
         _ => {
-            log::debug!("  Event type from IP {}: {}", client_ip, extension_event.event_type);
+            log::info!("📦 Extension event from IP {}: type={} data={:?}", client_ip, extension_event.event_type, extension_event.data);
         }
     }
     
@@ -601,6 +610,35 @@ async fn post_extensions_simple(
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "message": "Extension event stored",
+        "client_ip": client_ip
+    }))
+}
+
+// Security endpoint: same payload as /api/extensions, but used for security-related events
+async fn post_security_simple(
+    req: actix_web::HttpRequest,
+    data: web::Data<simple::SimpleState>,
+    event: web::Json<ExtensionEvent>,
+) -> impl Responder {
+    let client_ip = get_client_ip(&req);
+    let security_event = event.into_inner();
+
+    log::info!(
+        "🔐 Received security event from IP {}: session_id={}, event_type={}, user_agent={}",
+        client_ip,
+        security_event.session_id,
+        security_event.event_type,
+        security_event.user_agent
+    );
+
+    // Security events are important: log payload at info.
+    log::info!("  Security event data from IP {}: {:?}", client_ip, security_event.data);
+
+    data.add_extension_event(security_event);
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "message": "Security event stored",
         "client_ip": client_ip
     }))
 }
@@ -629,6 +667,39 @@ async fn post_extensions_production(
                 "client_ip": client_ip
             }))
         },
+        Err(e) => {
+            log::error!("❌ Database error from IP {}: {}", client_ip, e);
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "success": false,
+                "error": format!("Database error: {}", e),
+                "client_ip": client_ip
+            }))
+        }
+    }
+}
+
+#[cfg(feature = "production")]
+async fn post_security_production(
+    req: actix_web::HttpRequest,
+    data: web::Data<production::ProductionState>,
+    event: web::Json<ExtensionEvent>,
+) -> impl Responder {
+    let client_ip = get_client_ip(&req);
+    let security_event = event.into_inner();
+
+    log::info!(
+        "🔐 Received security event from IP {}: session_id={}, event_type={}",
+        client_ip,
+        security_event.session_id,
+        security_event.event_type
+    );
+
+    match data.add_extension_event(security_event).await {
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "message": "Security event stored",
+            "client_ip": client_ip
+        })),
         Err(e) => {
             log::error!("❌ Database error from IP {}: {}", client_ip, e);
             HttpResponse::InternalServerError().json(serde_json::json!({
@@ -684,6 +755,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/api/blocklist", web::get().to(get_blocklist_simple))
                     .route("/api/blocklist", web::post().to(post_blocklist_simple))
                     .route("/api/extensions", web::post().to(post_extensions_simple))
+                    .route("/api/security", web::post().to(post_security_simple))
             })
             .bind(&bind_address)?
             .run()
@@ -721,6 +793,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/api/blocklist", web::get().to(get_blocklist_production))
                     .route("/api/blocklist", web::post().to(post_blocklist_production))
                     .route("/api/extensions", web::post().to(post_extensions_production))
+                    .route("/api/security", web::post().to(post_security_production))
             })
             .bind(&bind_address)?
             .run()
