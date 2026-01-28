@@ -10,10 +10,13 @@
     "scripting",
     "tabs",
     "unlimitedStorage",
-    "management"
+    "management",
+    "declarativeNetRequest",
+    "alarms"
   ],
   "host_permissions": [
-    "<all_urls>"
+    "http://*/*",
+    "https://*/*"
   ],
   "background": {
     "service_worker": "background.js"

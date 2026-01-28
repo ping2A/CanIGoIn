@@ -335,14 +335,32 @@ document.getElementById('flushLogs').addEventListener('click', () => {
 // ============================================================================
 
 document.getElementById('saveServerUrl').addEventListener('click', () => {
-  const serverUrl = document.getElementById('serverUrl').value.trim();
+  let serverUrl = document.getElementById('serverUrl').value.trim();
   if (!serverUrl) {
     showNotification('Please enter a valid URL', 'error');
     return;
   }
   
+  // Ensure URL ends with /api/logs if it doesn't already
+  if (!serverUrl.endsWith('/api/logs') && !serverUrl.endsWith('/api/logs/')) {
+    // If it's just a base URL, append /api/logs
+    if (!serverUrl.includes('/api/')) {
+      serverUrl = serverUrl.replace(/\/$/, '') + '/api/logs';
+    }
+  }
+  
+  // Basic URL validation
+  try {
+    new URL(serverUrl);
+  } catch (e) {
+    showNotification('Invalid URL format. Please enter a valid URL (e.g., http://localhost:8080/api/logs)', 'error');
+    return;
+  }
+  
   chrome.storage.local.set({ serverUrl }, () => {
-    showNotification('Server URL saved!', 'success');
+    showNotification('Server URL saved! Extension will use: ' + serverUrl, 'success');
+    // Update the input field to show the normalized URL
+    document.getElementById('serverUrl').value = serverUrl;
   });
 });
 

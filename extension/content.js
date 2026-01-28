@@ -6,6 +6,29 @@
   
   // Track loaded scripts
   const loadedScripts = new Set();
+
+  // ============================================================================
+  // Clickfix logging controls (reduce false-positive/noisy console warnings)
+  // ============================================================================
+
+  function isDevLikeOrigin() {
+    try {
+      const host = window.location.hostname;
+      return (
+        window.location.protocol === 'file:' ||
+        host === 'localhost' ||
+        host === '127.0.0.1' ||
+        host === '0.0.0.0' ||
+        host.endsWith('.local')
+      );
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Only print console warnings for very high confidence detections by default.
+  // (We still send the detection to the background script for logging/analysis.)
+  const CLICKFIX_CONSOLE_WARN_THRESHOLD = 85;
   
   // Clickfix detection patterns - PowerShell and terminal command detection
   const CLICKFIX_PATTERNS = {
@@ -238,12 +261,20 @@
         ...details
       }).catch(err => console.error('Failed to send clickfix detection:', err));
       
-      // Also log to console for debugging (can be removed in production)
-      console.warn('🚨 Clickfix detected!', {
-        riskScore: detection.riskScore,
-        issues: detection.issues,
-        source: source
-      });
+      // Also log to console for debugging, but only when high confidence.
+      // This avoids spamming dev consoles (and avoids "detecting yourself" in local dev).
+      const forceWarn = details && details.forceConsoleWarn === true;
+      const shouldWarn =
+        forceWarn ||
+        (!isDevLikeOrigin() && detection.riskScore >= CLICKFIX_CONSOLE_WARN_THRESHOLD);
+
+      if (shouldWarn) {
+        console.warn('🚨 Clickfix detected!', {
+          riskScore: detection.riskScore,
+          issues: detection.issues,
+          source: source
+        });
+      }
     }
   }
   
@@ -270,11 +301,17 @@
     document.querySelectorAll('script').forEach(handleScriptElement);
   }
   
-  // Handle script element
+  // Handle script element - track external JavaScript files only
   function handleScriptElement(scriptElement) {
+    // Only track external JavaScript files (with src attribute)
+    // Inline scripts are not logged separately (they're part of the page)
+    if (!scriptElement.src) {
+      return; // Skip inline scripts
+    }
+    
     const scriptInfo = {
       url: window.location.href,
-      scriptUrl: scriptElement.src || 'inline',
+      scriptUrl: scriptElement.src,
       details: {
         type: scriptElement.type || 'text/javascript',
         async: scriptElement.async,
@@ -285,28 +322,15 @@
       }
     };
     
-    // For inline scripts, capture content and check for clickfix
-    if (!scriptElement.src && scriptElement.textContent) {
-      const content = scriptElement.textContent.trim();
-      scriptInfo.details.inlineContent = content.substring(0, 1000); // First 1000 chars
-      scriptInfo.details.inlineLength = content.length;
-      scriptInfo.details.inlineHash = simpleHash(content);
-      
-      // Check inline scripts for clickfix patterns
-      logClickfixDetection(content, 'inline_script', {
-        scriptUrl: 'inline',
-        hash: scriptInfo.details.inlineHash
-      });
-    }
-    
     // Avoid duplicates
-    const key = scriptElement.src || scriptInfo.details.inlineHash;
+    const key = scriptElement.src;
     if (loadedScripts.has(key)) {
       return;
     }
     loadedScripts.add(key);
     
-    // Send to background script
+    // Send to background script (background.js will handle logging via webRequest)
+    // This is just for tracking purposes
     chrome.runtime.sendMessage({
       action: 'logJavaScriptExecution',
       ...scriptInfo
@@ -346,41 +370,14 @@
     return element;
   };
   
-  // Monitor eval() calls - enhanced with clickfix detection
+  // Monitor eval() calls (clickfix detection removed - only clipboard activity triggers alerts)
   const originalEval = window.eval;
   let evalCount = 0;
   window.eval = function(code) {
     evalCount++;
     
-    // Always check for clickfix in eval calls (high risk)
-    if (code && typeof code === 'string') {
-      const consoleWasOpen = window.__clickfixConsoleRecentlyOpened || false;
-      
-      // If console was recently opened, this is even more suspicious
-      const detection = detectClickfix(code);
-      if (detection) {
-        if (consoleWasOpen) {
-          // Enhance detection if console was recently opened
-          detection.riskScore = Math.min(detection.riskScore + 20, 100);
-          detection.issues.push('console_recently_opened');
-          detection.note = 'Code executed via eval() shortly after console was opened - likely pasted code';
-        }
-        
-        // Log the detection
-        chrome.runtime.sendMessage({
-          action: 'logClickfixDetection',
-          url: window.location.href,
-          source: consoleWasOpen ? 'eval_with_console_open' : 'eval',
-          detection: detection,
-          timestamp: new Date().toISOString(),
-          userAgent: navigator.userAgent,
-          details: {
-            callCount: evalCount,
-            consoleRecentlyOpened: consoleWasOpen
-          }
-        }).catch(err => console.error('Failed to send clickfix detection:', err));
-      }
-    }
+    // Note: Clickfix detection removed from eval() - only clipboard activity triggers alerts
+    // Still log eval calls for general monitoring
     
     // Throttle logging of eval calls
     if (evalCount % 10 === 1) {
@@ -400,22 +397,14 @@
     return originalEval.call(window, code);
   };
   
-  // Monitor Function constructor (also used for dynamic code execution) - enhanced with clickfix detection
+  // Monitor Function constructor (clickfix detection removed - only clipboard activity triggers alerts)
   const OriginalFunction = window.Function;
   let functionCount = 0;
   window.Function = function(...args) {
     functionCount++;
     
-    // Check for clickfix in Function constructor body (last argument is usually the body)
-    if (args.length > 0) {
-      const body = args[args.length - 1];
-      if (body && typeof body === 'string') {
-        logClickfixDetection(body, 'Function_constructor', {
-          argsCount: args.length,
-          callCount: functionCount
-        });
-      }
-    }
+    // Note: Clickfix detection removed from Function constructor - only clipboard activity triggers alerts
+    // Still log Function constructor calls for general monitoring
     
     // Throttle logging
     if (functionCount % 10 === 1) {
@@ -435,88 +424,66 @@
     return new OriginalFunction(...args);
   };
   
-  // Monitor paste events on the page (clickfix detection)
+  // Monitor paste events (minimal - paste usually happens outside browser)
+  // This is kept for completeness but clickfix detection focuses on COPY events
   function monitorPasteEvents() {
-    // Listen for paste events on all elements
-    document.addEventListener('paste', (event) => {
-      // Get clipboard data
-      const clipboardData = event.clipboardData || window.clipboardData;
-      if (!clipboardData) return;
-      
-      const pastedText = clipboardData.getData('text/plain');
-      if (!pastedText || pastedText.trim().length === 0) return;
-      
-      // Check if the paste target is an input field or textarea
-      const target = event.target;
-      const isInputField = target && (
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.isContentEditable ||
-        target.contentEditable === 'true'
-      );
-      
-      // Check if pasted content looks like code (clickfix detection)
-      const trimmedText = pastedText.trim();
-      
-      // Skip if it's just a URL (not code)
-      if (trimmedText.match(/^https?:\/\/[^\s]+$/)) return;
-      
-      // Don't skip PowerShell commands even if they're short (clickfix often uses them)
-      const isPowerShell = /powershell|iex|Invoke-Expression|Invoke-WebRequest/i.test(trimmedText);
-      const isLikelyCode = /[;&|`]|\.ps1|\.bat|\.cmd|\.sh|curl|wget/i.test(trimmedText);
-      
-      // Skip very short text unless it looks like PowerShell or terminal code
-      if (trimmedText.length < 30 && !isPowerShell && !isLikelyCode) return;
-      
-      // Analyze the pasted text for clickfix patterns
-      logClickfixDetection(trimmedText, 'paste_event', {
-        target: target.tagName || 'unknown',
-        targetId: target.id || null,
-        targetClass: target.className || null,
-        isInputField: isInputField,
-        pastedLength: trimmedText.length
-      });
-    }, true); // Use capture phase to catch all paste events
+    // Note: Paste events are less useful for clickfix detection since
+    // users typically paste into external terminals/consoles outside the browser
+    // Primary detection is via COPY events and clipboard API writes
   }
   
-  // Monitor copy events to detect when suspicious code is copied
+  // Monitor copy events - PRIMARY clickfix detection mechanism
+  // Users copy suspicious code from websites, then paste into external terminals
+  // We detect the COPY event (paste happens outside browser, so we can't detect it)
   function monitorCopyEvents() {
     document.addEventListener('copy', (event) => {
       const selection = window.getSelection();
       const selectedText = selection.toString().trim();
       
-      // Check if it's PowerShell or terminal code (even if short)
-      const isPowerShell = /powershell|iex|Invoke-Expression|Invoke-WebRequest/i.test(selectedText);
+      if (!selectedText || selectedText.length === 0) return;
+      
+      // Skip if it's just a URL (not code)
+      if (selectedText.match(/^https?:\/\/[^\s]+$/)) return;
+      
+      // Skip very short text (likely not malicious)
+      if (selectedText.length < 30) return;
+      
+      // Check if it's PowerShell or terminal code (even if short, these are suspicious)
+      const isPowerShell = /powershell|iex|Invoke-Expression|Invoke-WebRequest|Invoke-RestMethod/i.test(selectedText);
       const isTerminalCode = /\.ps1|\.bat|\.cmd|\.sh|curl|wget|bash/i.test(selectedText);
+      const hasEncodedCommand = /-EncodedCommand|-Enc|FromBase64String/i.test(selectedText);
+      const hasExecutionPolicyBypass = /-ExecutionPolicy.*Bypass/i.test(selectedText);
       
       // Lower threshold for PowerShell/terminal commands (common in clickfix)
       const minLength = (isPowerShell || isTerminalCode) ? 20 : 50;
       const minRiskScore = isPowerShell ? 40 : 60; // PowerShell is more suspicious
       
-      if (selectedText && selectedText.length > minLength) {
-        // Check if selected text looks like code
+      if (selectedText.length > minLength) {
+        // Detect clickfix patterns in copied text
         const detection = detectClickfix(selectedText);
+        
+        // Alert if suspicious code is copied (this is the clickfix attack vector)
         if (detection && detection.riskScore >= minRiskScore) {
-          // Log that suspicious code was copied (potential clickfix preparation)
-          chrome.runtime.sendMessage({
-            action: 'logClickfixDetection',
-            url: window.location.href,
-            source: 'copy_event',
-            detection: {
-              ...detection,
-              note: `Suspicious ${detection.isPowerShell ? 'PowerShell' : 'code'} copied to clipboard - potential clickfix preparation`
-            },
-            timestamp: new Date().toISOString(),
-            userAgent: navigator.userAgent,
-            details: {
-              selectedTextLength: selectedText.length,
-              isPowerShell: isPowerShell,
-              isTerminalCode: isTerminalCode
-            }
-          }).catch(err => console.error('Failed to send copy detection:', err));
+          // Boost risk score if it has encoded commands or execution policy bypass
+          if (hasEncodedCommand || hasExecutionPolicyBypass) {
+            detection.riskScore = Math.min(detection.riskScore + 20, 100);
+            detection.issues.push('encoded_command_or_bypass');
+          }
+          
+          logClickfixDetection(selectedText, 'copy_event', {
+            target: event.target?.tagName || 'unknown',
+            targetId: event.target?.id || null,
+            selectedTextLength: selectedText.length,
+            isPowerShell: isPowerShell,
+            isTerminalCode: isTerminalCode,
+            hasEncodedCommand: hasEncodedCommand,
+            hasExecutionPolicyBypass: hasExecutionPolicyBypass,
+            note: `Suspicious ${detection.isPowerShell ? 'PowerShell' : 'code'} copied to clipboard - potential clickfix attack (user may paste this into external terminal)`,
+            forceConsoleWarn: true // Always warn for copy events with suspicious content
+          });
         }
       }
-    }, true);
+    }, true); // Use capture phase to catch all copy events
   }
   
   // Monitor keyboard events that might indicate console usage
@@ -741,16 +708,16 @@
     document.addEventListener('DOMContentLoaded', () => {
       monitorScriptLoading();
       monitorPasteEvents();
-      monitorCopyEvents();
+      monitorCopyEvents(); // PRIMARY clickfix detection - detects when user copies suspicious code
       monitorConsoleIndicators();
-      monitorClipboardWrites(); // Most important for clickfix detection
+      monitorClipboardWrites(); // SECONDARY clickfix detection - detects programmatic clipboard writes
     });
   } else {
     monitorScriptLoading();
     monitorPasteEvents();
-    monitorCopyEvents();
+    monitorCopyEvents(); // PRIMARY clickfix detection - detects when user copies suspicious code
     monitorConsoleIndicators();
-    monitorClipboardWrites(); // Most important for clickfix detection
+    monitorClipboardWrites(); // SECONDARY clickfix detection - detects programmatic clipboard writes
   }
   
   console.log('Network Logger content script loaded with clickfix detection');

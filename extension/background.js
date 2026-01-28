@@ -18,18 +18,99 @@ const CONFIG = {
   enableLocalBackup: true,        // Save logs to IndexedDB as backup
   maxRetries: 3,                  // Retry failed uploads
   retryDelay: 5000,              // Delay between retries (ms)
-  enableDomainWhitelist: false,  // Don't log whitelisted domains
-  domainWhitelist: [],           // Domains to ignore
+  enableDomainWhitelist: true,   // Don't log whitelisted domains (enabled by default)
+  domainWhitelist: [],           // User-defined domains to ignore (merged with predefined)
   captureResourceTiming: true,   // Capture performance data
   sanitizeSensitiveData: true,   // Remove passwords, tokens
   enableStatistics: true,        // Track statistics
   maxLocalStorageSize: 10 * 1024 * 1024 // 10MB max local storage
 };
 
+// Predefined whitelist of major domains to reduce server load
+// These are common services that generate a lot of requests
+const PREDEFINED_WHITELIST = [
+  // Google services
+  'google.com',
+  'googleapis.com',
+  'gstatic.com',
+  'googleusercontent.com',
+  'gmail.com',
+  'youtube.com',
+  'googletagmanager.com',
+  'google-analytics.com',
+  'doubleclick.net',
+  'googlesyndication.com',
+  'googleadservices.com',
+  'google-analytics.com',
+  
+  // Microsoft services
+  'microsoft.com',
+  'microsoftonline.com',
+  'office.com',
+  'office365.com',
+  'live.com',
+  'outlook.com',
+  'hotmail.com',
+  'msn.com',
+  'bing.com',
+  'azure.com',
+  'azureedge.net',
+  'msecnd.net',
+  
+  // Apple services
+  'apple.com',
+  'icloud.com',
+  'apple-cloudkit.com',
+  'appleid.apple.com',
+  
+  // Facebook/Meta
+  'facebook.com',
+  'fbcdn.net',
+  'facebook.net',
+  'instagram.com',
+  'whatsapp.com',
+  
+  // Amazon
+  'amazon.com',
+  'amazonaws.com',
+  'amazon-adsystem.com',
+  'amazon-adsystem.com',
+  
+  // CDNs and common services
+  'cloudflare.com',
+  'cloudflare.net',
+  'fastly.com',
+  'akamai.net',
+  'akamaiedge.net',
+  'jsdelivr.net',
+  'cdnjs.com',
+  'unpkg.com',
+  
+  // Common analytics and tracking (reduce noise)
+  'analytics.google.com',
+  'googletagmanager.com',
+  'facebook.net',
+  'scorecardresearch.com',
+  'quantserve.com',
+  
+  // Common ad networks (reduce noise)
+  'adsafeprotected.com',
+  'advertising.com',
+  'adnxs.com',
+  'rubiconproject.com',
+  
+  // Local/internal
+  'localhost',
+  '127.0.0.1',
+  '0.0.0.0',
+  '::1'
+];
+
 // In-memory buffers
 let logBuffer = [];
 let failedBatches = [];
 let sessionId = generateSessionId();
+let scheduledFlushTimeout = null;
 
 // Statistics
 let statistics = {
@@ -65,13 +146,25 @@ chrome.storage.local.get([
   if (result.enableBlocking !== undefined) CONFIG.enableBlocking = result.enableBlocking;
   if (result.blockedYouTubeChannels) CONFIG.blockedYouTubeChannels = result.blockedYouTubeChannels;
   if (result.youtubeChannelBlocking !== undefined) CONFIG.youtubeChannelBlocking = result.youtubeChannelBlocking;
-  if (result.serverUrl) CONFIG.serverUrl = result.serverUrl;
+  if (result.serverUrl && result.serverUrl !== 'https://your-server.com/api/logs') {
+    CONFIG.serverUrl = result.serverUrl;
+    console.log('✅ Server URL loaded from storage:', CONFIG.serverUrl);
+  } else {
+    console.warn('⚠️ No server URL configured. Please set it in the Settings tab.');
+  }
   if (result.maxBufferSize) CONFIG.maxBufferSize = result.maxBufferSize;
   if (result.enableLocalBackup !== undefined) CONFIG.enableLocalBackup = result.enableLocalBackup;
   if (result.domainWhitelist) CONFIG.domainWhitelist = result.domainWhitelist;
-  if (result.enableDomainWhitelist !== undefined) CONFIG.enableDomainWhitelist = result.enableDomainWhitelist;
+  if (result.enableDomainWhitelist !== undefined) {
+    CONFIG.enableDomainWhitelist = result.enableDomainWhitelist;
+  } else {
+    // Enable by default if not set (first time user)
+    CONFIG.enableDomainWhitelist = true;
+    chrome.storage.local.set({ enableDomainWhitelist: true });
+  }
   
   console.log('✅ Configuration loaded:', CONFIG);
+  console.log(`📋 Whitelist: ${CONFIG.enableDomainWhitelist ? 'ENABLED' : 'DISABLED'} (${PREDEFINED_WHITELIST.length} predefined domains + ${CONFIG.domainWhitelist.length} user-defined)`);
 });
 
 // Listen for storage changes
@@ -80,9 +173,47 @@ chrome.storage.onChanged.addListener((changes) => {
     if (CONFIG.hasOwnProperty(key)) {
       CONFIG[key] = changes[key].newValue;
       console.log(`⚙️ Config updated: ${key} =`, changes[key].newValue);
+      
+      // Special handling for serverUrl changes
+      if (key === 'serverUrl' && changes[key].newValue) {
+        const newUrl = changes[key].newValue;
+        if (newUrl && newUrl !== 'https://your-server.com/api/logs') {
+          console.log(`✅ Server URL updated to: ${newUrl}`);
+          // Test the connection
+          testServerConnection(newUrl);
+        }
+      }
     }
   });
 });
+
+// Test server connection
+async function testServerConnection(url) {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+    
+    const healthUrl = url.replace('/api/logs', '/health');
+    const response = await fetch(healthUrl, {
+      method: 'GET',
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (response.ok) {
+      console.log('✅ Server connection test successful:', healthUrl);
+    } else {
+      console.warn('⚠️ Server connection test failed:', response.status);
+    }
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      console.warn('⚠️ Server connection test timed out');
+    } else {
+      console.warn('⚠️ Server connection test error:', error.message);
+    }
+  }
+}
 
 // ============================================================================
 // Utility Functions
@@ -97,13 +228,29 @@ function isWhitelisted(url) {
   
   try {
     const urlObj = new URL(url);
-    const domain = urlObj.hostname;
+    const domain = urlObj.hostname.toLowerCase();
     
+    // Check predefined whitelist first (most common case)
+    const isPredefinedWhitelisted = PREDEFINED_WHITELIST.some(whitelistedDomain => {
+      // Exact match
+      if (domain === whitelistedDomain) return true;
+      // Subdomain match (e.g., www.google.com matches google.com)
+      if (domain.endsWith('.' + whitelistedDomain)) return true;
+      return false;
+    });
+    
+    if (isPredefinedWhitelisted) return true;
+    
+    // Check user-defined whitelist
     return CONFIG.domainWhitelist.some(pattern => {
-      if (pattern.startsWith('*.')) {
-        return domain.endsWith(pattern.slice(1));
+      const patternLower = pattern.toLowerCase();
+      if (patternLower.startsWith('*.')) {
+        // Wildcard subdomain pattern (e.g., *.example.com)
+        const baseDomain = patternLower.slice(2); // Remove '*.'
+        return domain === baseDomain || domain.endsWith('.' + baseDomain);
       }
-      return domain === pattern || domain.endsWith('.' + pattern);
+      // Exact match or subdomain match
+      return domain === patternLower || domain.endsWith('.' + patternLower);
     });
   } catch (e) {
     return false;
@@ -199,126 +346,221 @@ async function clearLocalBackup() {
 }
 
 // ============================================================================
-// Network Request Logging
+// DeclarativeNetRequest Rules Management (Manifest V3 blocking)
 // ============================================================================
 
+let ruleIdCounter = 1;
+
+async function updateDeclarativeNetRequestRules() {
+  if (!chrome.declarativeNetRequest) {
+    console.warn('⚠️ declarativeNetRequest API not available');
+    return;
+  }
+
+  const rules = [];
+  
+  // Add URL blocking rules
+  if (CONFIG.enableBlocking && CONFIG.blockList.length > 0) {
+    CONFIG.blockList.forEach((pattern, index) => {
+      try {
+        // Convert regex pattern to declarativeNetRequest format
+        // Note: declarativeNetRequest has limited regex support
+        // For complex patterns, we'll use urlFilter
+        rules.push({
+          id: ruleIdCounter++,
+          priority: 1,
+          action: { type: 'block' },
+          condition: {
+            urlFilter: pattern,
+            // Use regexFilter for regex patterns (if supported)
+            // For now, we'll use urlFilter which supports wildcards
+            resourceTypes: ['main_frame', 'sub_frame', 'stylesheet', 'script', 'image', 'font', 'object', 'xmlhttprequest', 'ping', 'csp_report', 'media', 'websocket', 'other']
+          }
+        });
+      } catch (e) {
+        console.error('❌ Invalid blocking pattern:', pattern, e);
+      }
+    });
+  }
+  
+  // Update rules
+  try {
+    await chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds: await chrome.declarativeNetRequest.getDynamicRules().then(r => r.map(rule => rule.id)),
+      addRules: rules
+    });
+    console.log(`✅ Updated ${rules.length} blocking rules`);
+  } catch (error) {
+    console.error('❌ Failed to update declarativeNetRequest rules:', error);
+  }
+}
+
+// Initialize rules on startup
+chrome.storage.local.get(['blockList', 'enableBlocking'], (result) => {
+  if (result.blockList) CONFIG.blockList = result.blockList;
+  if (result.enableBlocking !== undefined) CONFIG.enableBlocking = result.enableBlocking;
+  updateDeclarativeNetRequestRules();
+});
+
+// Update rules when blocklist changes
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.blockList || changes.enableBlocking) {
+    if (changes.blockList) CONFIG.blockList = changes.blockList.newValue;
+    if (changes.enableBlocking !== undefined) CONFIG.enableBlocking = changes.enableBlocking.newValue;
+    updateDeclarativeNetRequestRules();
+  }
+});
+
+// ============================================================================
+// Page Navigation and JavaScript File Tracking
+// ============================================================================
+
+// Track page navigations and their associated JavaScript files
+const pageScripts = new Map(); // tabId -> { pageUrl, scripts: [] }
+
+// Listen for page navigations (user-initiated only)
+chrome.webNavigation.onCommitted.addListener((details) => {
+  // Only track main frame navigations (user clicking/entering URLs)
+  if (details.frameId !== 0) return;
+  
+  // Only track user-initiated navigations:
+  // - "typed" = user typed URL in address bar
+  // - "link" = user clicked a link
+  // - "form_submit" = user submitted a form
+  // Skip: "auto_subframe", "manual_subframe", "reload", "auto_toplevel", etc.
+  const userInitiatedTypes = ['typed', 'link', 'form_submit', 'generated'];
+  if (!userInitiatedTypes.includes(details.transitionType)) {
+    return; // Skip non-user-initiated navigations
+  }
+  
+  const tabId = details.tabId;
+  const pageUrl = details.url;
+  
+  // Skip chrome://, chrome-extension://, and other internal URLs
+  if (pageUrl.startsWith('chrome://') || 
+      pageUrl.startsWith('chrome-extension://') ||
+      pageUrl.startsWith('about:') ||
+      pageUrl.startsWith('moz-extension://')) {
+    return;
+  }
+  
+  // Check if page URL is whitelisted (skip logging if it is)
+  if (isWhitelisted(pageUrl)) {
+    console.log(`⏭️ Skipping whitelisted page: ${pageUrl}`);
+    return;
+  }
+  
+  // Initialize script tracking for this page
+  pageScripts.set(tabId, {
+    pageUrl: pageUrl,
+    timestamp: new Date().toISOString(),
+    scripts: [],
+    navigationType: details.transitionType
+  });
+  
+  console.log(`📄 Page navigation: ${pageUrl} (tab: ${tabId}, type: ${details.transitionType})`);
+  
+  // Log the navigation event
+  logEntry({
+    sessionId,
+    timestamp: new Date().toISOString(),
+    requestId: `nav-${tabId}-${Date.now()}`,
+    url: pageUrl,
+    method: 'GET',
+    type: 'main_frame',
+    tabId: tabId,
+    frameId: 0,
+    initiator: details.url,
+    blocked: false,
+    isNavigation: true,
+    navigationType: details.transitionType
+  });
+  
+  statistics.totalRequests++;
+  statistics.loggedRequests++;
+});
+
+// Track JavaScript files loaded for each page
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
-    statistics.totalRequests++;
+    // Only track script files
+    if (details.type !== 'script') return;
+    
+    const tabId = details.tabId;
+    const pageData = pageScripts.get(tabId);
+    
+    // Only track scripts for pages we're monitoring (user navigations)
+    if (!pageData) return;
     
     // Check if domain is whitelisted
     if (isWhitelisted(details.url)) {
       return;
     }
     
-    // YouTube channel blocking
-    if (CONFIG.youtubeChannelBlocking && details.url.includes('youtube.com')) {
-      const blockInfo = shouldBlockYouTubeChannel(details.url);
-      if (blockInfo.shouldBlock) {
-        statistics.blockedRequests++;
-        
-        logEntry({
-          sessionId,
-          timestamp: new Date().toISOString(),
-          requestId: details.requestId,
-          url: details.url,
-          method: details.method,
-          type: details.type,
-          tabId: details.tabId,
-          frameId: details.frameId,
-          initiator: details.initiator,
-          blocked: true,
-          blockReason: 'youtube_channel',
-          youtubeChannelInfo: blockInfo.channelInfo
-        });
-        
-        return {
-          redirectUrl: `data:text/html,<html><body><h1>Channel Blocked</h1><p>This YouTube channel has been blocked.</p></body></html>`
-        };
-      }
+    // Add script to the page's script list
+    if (!pageData.scripts.find(s => s.url === details.url)) {
+      pageData.scripts.push({
+        url: details.url,
+        requestId: details.requestId,
+        timestamp: new Date().toISOString(),
+        method: details.method,
+        initiator: details.initiator
+      });
+      
+      // Log the JavaScript file
+      logEntry({
+        sessionId,
+        timestamp: new Date().toISOString(),
+        requestId: details.requestId,
+        url: details.url,
+        method: details.method,
+        type: 'script',
+        tabId: tabId,
+        frameId: details.frameId,
+        initiator: details.initiator,
+        blocked: false,
+        pageUrl: pageData.pageUrl,
+        isJavaScript: true
+      });
+      
+      statistics.loggedRequests++;
     }
-    
-    // URL blocking
-    if (CONFIG.enableBlocking && CONFIG.blockList.length > 0) {
-      for (const pattern of CONFIG.blockList) {
-        try {
-          const regex = new RegExp(pattern);
-          if (regex.test(details.url)) {
-            statistics.blockedRequests++;
-            
-            logEntry({
-              sessionId,
-              timestamp: new Date().toISOString(),
-              requestId: details.requestId,
-              url: details.url,
-              method: details.method,
-              type: details.type,
-              tabId: details.tabId,
-              frameId: details.frameId,
-              initiator: details.initiator,
-              blocked: true,
-              blockReason: pattern
-            });
-            
-            return { cancel: true };
-          }
-        } catch (e) {
-          console.error('❌ Invalid regex pattern:', pattern, e);
-        }
-      }
-    }
-    
-    // Log request
-    const logData = {
-      sessionId,
-      timestamp: new Date().toISOString(),
-      requestId: details.requestId,
-      url: details.url,
-      method: details.method,
-      type: details.type,
-      tabId: details.tabId,
-      frameId: details.frameId,
-      initiator: details.initiator,
-      blocked: false
-    };
-    
-    // Add resource timing if available
-    if (CONFIG.captureResourceTiming && details.timeStamp) {
-      logData.timing = {
-        requestTime: details.timeStamp
-      };
-    }
-    
-    logEntry(logData);
   },
-  { urls: ['<all_urls>'] },
-  ['blocking']
+  { urls: ['<all_urls>'] }
 );
 
-// Capture response details
-chrome.webRequest.onCompleted.addListener(
-  (details) => {
-    if (isWhitelisted(details.url)) return;
+// When page finishes loading, log summary
+chrome.webNavigation.onCompleted.addListener((details) => {
+  if (details.frameId !== 0) return;
+  
+  const tabId = details.tabId;
+  const pageData = pageScripts.get(tabId);
+  
+  if (pageData) {
+    console.log(`✅ Page loaded: ${pageData.pageUrl} with ${pageData.scripts.length} JavaScript files`);
     
-    const existingLog = logBuffer.find(log => log.requestId === details.requestId);
-    if (existingLog) {
-      existingLog.statusCode = details.statusCode;
-      if (CONFIG.captureResourceTiming && details.timeStamp) {
-        existingLog.timing = existingLog.timing || {};
-        existingLog.timing.responseTime = details.timeStamp;
-        existingLog.timing.duration = details.timeStamp - existingLog.timing.requestTime;
-      }
-      if (details.responseHeaders) {
-        existingLog.responseHeaders = details.responseHeaders.map(h => ({
-          name: h.name,
-          value: h.value
-        }));
-      }
-    }
-  },
-  { urls: ['<all_urls>'] },
-  ['responseHeaders']
-);
+    // Optionally log a summary entry
+    logEntry({
+      sessionId,
+      timestamp: new Date().toISOString(),
+      requestId: `summary-${tabId}-${Date.now()}`,
+      url: pageData.pageUrl,
+      method: 'GET',
+      type: 'page_summary',
+      tabId: tabId,
+      frameId: 0,
+      blocked: false,
+      isPageSummary: true,
+      javascriptFilesCount: pageData.scripts.length,
+      javascriptFiles: pageData.scripts.map(s => s.url)
+    });
+    
+    // Clean up after a delay (keep for potential retries)
+    setTimeout(() => {
+      pageScripts.delete(tabId);
+    }, 60000); // Keep for 60 seconds
+  }
+});
 
 // ============================================================================
 // Log Management
@@ -343,6 +585,19 @@ function logEntry(entry) {
   // Trigger batch send if buffer is full
   if (logBuffer.length >= CONFIG.batchSize) {
     sendLogBatch();
+    return;
+  }
+
+  // Debounced flush: ensures low-volume browsing still gets uploaded before
+  // the MV3 service worker is suspended.
+  if (!scheduledFlushTimeout) {
+    scheduledFlushTimeout = setTimeout(() => {
+      scheduledFlushTimeout = null;
+      if (logBuffer.length > 0) {
+        console.log(`⏱️ Debounced flush (${logBuffer.length} logs in buffer)`);
+        sendLogBatch();
+      }
+    }, Math.min(CONFIG.batchInterval, 5000));
   }
 }
 
@@ -466,18 +721,54 @@ async function retryFailedBatches() {
 }
 
 // ============================================================================
-// Periodic Batch Sending
+// Periodic Batch Sending (Manifest V3-friendly)
 // ============================================================================
 
-setInterval(() => {
-  if (logBuffer.length > 0) {
-    console.log(`⏰ Periodic batch send (${logBuffer.length} logs in buffer)`);
-    sendLogBatch();
+// MV3 service workers can be suspended; setInterval is not reliable.
+// Use chrome.alarms to wake up periodically and flush logs.
+try {
+  if (chrome.alarms) {
+    chrome.alarms.create('flushLogs', { periodInMinutes: 1 });
+    chrome.alarms.create('refreshExtensions', { periodInMinutes: 5 });
+    chrome.alarms.create('scanExtensions', { periodInMinutes: 30 });
+
+    chrome.alarms.onAlarm.addListener((alarm) => {
+      if (alarm.name === 'flushLogs') {
+        if (logBuffer.length > 0) {
+          console.log(`⏰ Alarm flush (${logBuffer.length} logs in buffer)`);
+          sendLogBatch();
+        }
+        updateStatistics();
+      }
+
+      if (alarm.name === 'refreshExtensions') {
+        refreshExtensionList();
+      }
+
+      if (alarm.name === 'scanExtensions') {
+        scanAllExtensions();
+      }
+    });
+  } else {
+    // Fallback (should rarely happen)
+    setInterval(() => {
+      if (logBuffer.length > 0) {
+        console.log(`⏰ Periodic batch send (${logBuffer.length} logs in buffer)`);
+        sendLogBatch();
+      }
+      updateStatistics();
+    }, CONFIG.batchInterval);
   }
-  
-  // Update statistics
-  updateStatistics();
-}, CONFIG.batchInterval);
+} catch (e) {
+  // Fallback if alarms throws for some reason
+  setInterval(() => {
+    if (logBuffer.length > 0) {
+      console.log(`⏰ Periodic batch send (${logBuffer.length} logs in buffer)`);
+      sendLogBatch();
+    }
+    updateStatistics();
+  }, CONFIG.batchInterval);
+}
 
 // ============================================================================
 // Statistics Management
@@ -809,9 +1100,7 @@ refreshExtensionList().then(extensions => {
   scanAllExtensions();
 });
 
-// Periodic refresh
-setInterval(() => refreshExtensionList(), 5 * 60 * 1000);
-setInterval(() => scanAllExtensions(), 30 * 60 * 1000);
+// Periodic refresh is handled by alarms above in MV3-friendly way.
 
 // ============================================================================
 // Message Handling (Extended)
@@ -892,13 +1181,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.error('Failed to send clickfix detection immediately:', err);
     });
     
-    // Log to console for immediate visibility
-    console.warn('🚨 CLICKFIX DETECTED:', {
-      url: message.url,
-      riskScore: message.detection.riskScore,
-      issues: message.detection.issues,
-      source: message.source
-    });
+    // Log to console for immediate visibility, but only when high confidence.
+    // This avoids noisy false positives during development.
+    try {
+      const riskScore = message?.detection?.riskScore ?? 0;
+      const forceWarn = message?.detection?.forceConsoleWarn === true || message?.forceConsoleWarn === true;
+      if (forceWarn || riskScore >= 85) {
+        console.warn('🚨 CLICKFIX DETECTED:', {
+          url: message.url,
+          riskScore,
+          issues: message.detection.issues,
+          source: message.source
+        });
+      }
+    } catch (e) {
+      // Ignore console logging failures
+    }
     
     sendResponse({ success: true, logged: true });
     return true;
