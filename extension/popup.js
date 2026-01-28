@@ -30,8 +30,8 @@ function loadSettings() {
   chrome.storage.local.get([
     'blockList',
     'enableBlocking',
-    'blockedYouTubeChannels',
-    'youtubeChannelBlocking',
+    'whitelistedYouTubeChannels',
+    'youtubeChannelWhitelistEnabled',
     'serverUrl',
     'enableLocalBackup',
     'maxBufferSize',
@@ -52,11 +52,11 @@ function loadSettings() {
     }
     
     // YouTube tab
-    if (result.blockedYouTubeChannels) {
-      document.getElementById('blockedYouTubeChannels').value = result.blockedYouTubeChannels.join('\n');
+    if (result.whitelistedYouTubeChannels) {
+      document.getElementById('whitelistedYouTubeChannels').value = result.whitelistedYouTubeChannels.join('\n');
     }
-    if (result.youtubeChannelBlocking !== undefined) {
-      document.getElementById('youtubeChannelBlocking').checked = result.youtubeChannelBlocking;
+    if (result.youtubeChannelWhitelistEnabled !== undefined) {
+      document.getElementById('youtubeChannelWhitelistEnabled').checked = result.youtubeChannelWhitelistEnabled;
     }
     
     // Settings tab
@@ -147,26 +147,26 @@ document.getElementById('clearBlockList').addEventListener('click', () => {
 // YouTube Tab
 // ============================================================================
 
-document.getElementById('youtubeChannelBlocking').addEventListener('change', (e) => {
-  chrome.storage.local.set({ youtubeChannelBlocking: e.target.checked });
+document.getElementById('youtubeChannelWhitelistEnabled').addEventListener('change', (e) => {
+  chrome.storage.local.set({ youtubeChannelWhitelistEnabled: e.target.checked });
 });
 
 document.getElementById('saveYouTubeChannels').addEventListener('click', () => {
-  const blockedYouTubeChannels = document.getElementById('blockedYouTubeChannels').value
+  const whitelistedYouTubeChannels = document.getElementById('whitelistedYouTubeChannels').value
     .split('\n')
     .map(line => line.trim())
     .filter(line => line.length > 0);
   
-  chrome.storage.local.set({ blockedYouTubeChannels }, () => {
-    showNotification('YouTube channels saved!', 'success');
+  chrome.storage.local.set({ whitelistedYouTubeChannels }, () => {
+    showNotification('YouTube whitelist saved!', 'success');
   });
 });
 
 document.getElementById('clearYouTubeChannels').addEventListener('click', () => {
-  if (confirm('Clear all blocked channels?')) {
-    document.getElementById('blockedYouTubeChannels').value = '';
-    chrome.storage.local.set({ blockedYouTubeChannels: [] }, () => {
-      showNotification('Blocked channels cleared!', 'success');
+  if (confirm('Clear all whitelisted channels?')) {
+    document.getElementById('whitelistedYouTubeChannels').value = '';
+    chrome.storage.local.set({ whitelistedYouTubeChannels: [] }, () => {
+      showNotification('YouTube whitelist cleared!', 'success');
     });
   }
 });

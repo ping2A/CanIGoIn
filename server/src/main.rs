@@ -1,8 +1,10 @@
-use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{web, App, HttpResponse, HttpServer, Responder, HttpRequest};
 use actix_cors::Cors;
 use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use flate2::read::GzDecoder;
+use std::io::Read;
 
 #[derive(Debug, Clone, ValueEnum)]
 enum ServerMode {
@@ -327,13 +329,52 @@ async fn health_check(req: actix_web::HttpRequest) -> impl Responder {
     }))
 }
 
+// Helper to decompress gzip body if needed
+fn decompress_body_if_needed(req: &HttpRequest, body: &web::Bytes) -> Result<String, HttpResponse> {
+    let content_encoding = req.headers().get("content-encoding")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("");
+    
+    if content_encoding == "gzip" {
+        let mut decoder = GzDecoder::new(&body[..]);
+        let mut decompressed = String::new();
+        match decoder.read_to_string(&mut decompressed) {
+            Ok(_) => Ok(decompressed),
+            Err(e) => {
+                // Be tolerant: log the error but fall back to treating body as plain UTF-8 JSON.
+                log::warn!("Failed to decompress gzip body ({}). Falling back to plain body.", e);
+                Ok(String::from_utf8_lossy(&body).to_string())
+            }
+        }
+    } else {
+        Ok(String::from_utf8_lossy(&body).to_string())
+    }
+}
+
 async fn post_logs_simple(
     req: actix_web::HttpRequest,
     data: web::Data<simple::SimpleState>,
-    entry: web::Json<LogEntry>,
+    body: web::Bytes,
 ) -> impl Responder {
     let client_ip = get_client_ip(&req);
-    let log_entry = entry.into_inner();
+    
+    // Decompress if needed
+    let body_str = match decompress_body_if_needed(&req, &body) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+    
+    // Parse JSON
+    let log_entry: LogEntry = match serde_json::from_str(&body_str) {
+        Ok(e) => e,
+        Err(e) => {
+            log::error!("Failed to parse log entry JSON: {}", e);
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "success": false,
+                "error": format!("Invalid JSON: {}", e)
+            }));
+        }
+    };
     
     // Validate required fields
     if log_entry.session_id.is_empty() {
@@ -433,10 +474,28 @@ async fn post_logs_simple(
 async fn post_logs_production(
     req: actix_web::HttpRequest,
     data: web::Data<production::ProductionState>,
-    entry: web::Json<LogEntry>,
+    body: web::BytesMut,
 ) -> impl Responder {
     let client_ip = get_client_ip(&req);
-    let log_entry = entry.into_inner();
+    let body_bytes = body.freeze();
+    
+    // Decompress if needed
+    let body_str = match decompress_body_if_needed(&req, &body_bytes) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+    
+    // Parse JSON
+    let log_entry: LogEntry = match serde_json::from_str(&body_str) {
+        Ok(e) => e,
+        Err(e) => {
+            log::error!("Failed to parse log entry JSON: {}", e);
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "success": false,
+                "error": format!("Invalid JSON: {}", e)
+            }));
+        }
+    };
     
     log::info!("📥 Received log entry from IP {}: session_id={}, logs_count={}", 
         client_ip,
@@ -569,10 +628,27 @@ async fn post_blocklist_production(
 async fn post_extensions_simple(
     req: actix_web::HttpRequest,
     data: web::Data<simple::SimpleState>,
-    event: web::Json<ExtensionEvent>,
+    body: web::Bytes,
 ) -> impl Responder {
     let client_ip = get_client_ip(&req);
-    let extension_event = event.into_inner();
+    
+    // Decompress if needed
+    let body_str = match decompress_body_if_needed(&req, &body) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+    
+    // Parse JSON
+    let extension_event: ExtensionEvent = match serde_json::from_str(&body_str) {
+        Ok(e) => e,
+        Err(e) => {
+            log::error!("Failed to parse extension event JSON: {}", e);
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "success": false,
+                "error": format!("Invalid JSON: {}", e)
+            }));
+        }
+    };
     
     // Log extension event details with IP
     log::info!("📦 Received extension event from IP {}: session_id={}, event_type={}, user_agent={}",
@@ -618,13 +694,30 @@ async fn post_extensions_simple(
 async fn post_security_simple(
     req: actix_web::HttpRequest,
     data: web::Data<simple::SimpleState>,
-    event: web::Json<ExtensionEvent>,
+    body: web::Bytes,
 ) -> impl Responder {
     let client_ip = get_client_ip(&req);
-    let security_event = event.into_inner();
+    
+    // Decompress if needed
+    let body_str = match decompress_body_if_needed(&req, &body) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+    
+    // Parse JSON
+    let security_event: ExtensionEvent = match serde_json::from_str(&body_str) {
+        Ok(e) => e,
+        Err(e) => {
+            log::error!("🔒 SECURITY Failed to parse security event JSON: {}", e);
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "success": false,
+                "error": format!("Invalid JSON: {}", e)
+            }));
+        }
+    };
 
     log::info!(
-        "🔐 Received security event from IP {}: session_id={}, event_type={}, user_agent={}",
+        "🔒 SECURITY Received security event from IP {}: session_id={}, event_type={}, user_agent={}",
         client_ip,
         security_event.session_id,
         security_event.event_type,
@@ -632,7 +725,7 @@ async fn post_security_simple(
     );
 
     // Security events are important: log payload at info.
-    log::info!("  Security event data from IP {}: {:?}", client_ip, security_event.data);
+    log::info!("🔒 SECURITY   event data from IP {}: {:?}", client_ip, security_event.data);
 
     data.add_extension_event(security_event);
 
@@ -647,10 +740,28 @@ async fn post_security_simple(
 async fn post_extensions_production(
     req: actix_web::HttpRequest,
     data: web::Data<production::ProductionState>,
-    event: web::Json<ExtensionEvent>,
+    body: web::BytesMut,
 ) -> impl Responder {
     let client_ip = get_client_ip(&req);
-    let extension_event = event.into_inner();
+    let body_bytes = body.freeze();
+    
+    // Decompress if needed
+    let body_str = match decompress_body_if_needed(&req, &body_bytes) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+    
+    // Parse JSON
+    let extension_event: ExtensionEvent = match serde_json::from_str(&body_str) {
+        Ok(e) => e,
+        Err(e) => {
+            log::error!("Failed to parse extension event JSON: {}", e);
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "success": false,
+                "error": format!("Invalid JSON: {}", e)
+            }));
+        }
+    };
     
     log::info!("📦 Received extension event from IP {}: session_id={}, event_type={}",
         client_ip,
@@ -682,13 +793,31 @@ async fn post_extensions_production(
 async fn post_security_production(
     req: actix_web::HttpRequest,
     data: web::Data<production::ProductionState>,
-    event: web::Json<ExtensionEvent>,
+    body: web::BytesMut,
 ) -> impl Responder {
     let client_ip = get_client_ip(&req);
-    let security_event = event.into_inner();
+    let body_bytes = body.freeze();
+    
+    // Decompress if needed
+    let body_str = match decompress_body_if_needed(&req, &body_bytes) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+    
+    // Parse JSON
+    let security_event: ExtensionEvent = match serde_json::from_str(&body_str) {
+        Ok(e) => e,
+        Err(e) => {
+            log::error!("🔒 SECURITY Failed to parse security event JSON: {}", e);
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "success": false,
+                "error": format!("Invalid JSON: {}", e)
+            }));
+        }
+    };
 
     log::info!(
-        "🔐 Received security event from IP {}: session_id={}, event_type={}",
+        "🔒 SECURITY Received security event from IP {}: session_id={}, event_type={}",
         client_ip,
         security_event.session_id,
         security_event.event_type
@@ -701,7 +830,7 @@ async fn post_security_production(
             "client_ip": client_ip
         })),
         Err(e) => {
-            log::error!("❌ Database error from IP {}: {}", client_ip, e);
+            log::error!("🔒 SECURITY Database error from IP {}: {}", client_ip, e);
             HttpResponse::InternalServerError().json(serde_json::json!({
                 "success": false,
                 "error": format!("Database error: {}", e),

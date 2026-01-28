@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Network Logger & Blocker",
+  "name": "CanIGoIn",
   "version": "3.0.0",
-  "description": "Complete network monitoring with clickfix detection, extension monitoring, statistics, backup, and blocking",
+  "description": "Network monitoring, clickfix detection, YouTube channel whitelist, extension monitoring",
   "permissions": [
     "webRequest",
     "webNavigation",
@@ -48,5 +48,11 @@
   },
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["page-context-clipboard.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }

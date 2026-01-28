@@ -277,6 +277,50 @@
       }
     }
   }
+
+  // Check clipboard write for clickfix patterns (shared by content-script override and page-context event)
+  function checkClipboardWrite(text, isProgrammatic, timeSinceUserAction) {
+    if (!text || typeof text !== 'string') {
+      return;
+    }
+    const trimmedText = text.trim();
+    if (trimmedText.length < 20) return;
+    if (trimmedText.match(/^https?:\/\/[^\s]+$/)) return;
+    const detection = detectClickfix(trimmedText);
+    if (isProgrammatic && detection) {
+      detection.riskScore = Math.min(detection.riskScore + 30, 100);
+      detection.issues.push('programmatic_clipboard_write');
+      detection.note = 'Website automatically wrote suspicious code to clipboard (CLICKFIX ATTACK)';
+      chrome.runtime.sendMessage({
+        action: 'logClickfixDetection',
+        url: window.location.href,
+        source: 'clipboard_writeText_api',
+        detection: detection,
+        timestamp: new Date().toISOString(),
+        userAgent: navigator.userAgent,
+        details: {
+          wasProgrammatic: true,
+          timeSinceUserAction: timeSinceUserAction,
+          clipboardContentLength: trimmedText.length
+        }
+      }).catch(err => console.error('Failed to send clipboard detection:', err));
+      console.warn('🚨 CLICKFIX DETECTED: Website wrote suspicious content to clipboard!', {
+        content: trimmedText.substring(0, 200),
+        riskScore: detection.riskScore,
+        isPowerShell: detection.isPowerShell
+      });
+    } else if (detection && detection.riskScore >= 70) {
+      chrome.runtime.sendMessage({
+        action: 'logClickfixDetection',
+        url: window.location.href,
+        source: 'clipboard_writeText_api',
+        detection: { ...detection, note: 'High-risk code written to clipboard (may have been user-initiated)' },
+        timestamp: new Date().toISOString(),
+        userAgent: navigator.userAgent,
+        details: { wasProgrammatic: false, clipboardContentLength: trimmedText.length }
+      }).catch(err => console.error('Failed to send clipboard detection:', err));
+    }
+  }
   
   // Monitor inline scripts and dynamically loaded scripts
   function monitorScriptLoading() {
@@ -368,60 +412,6 @@
     }
     
     return element;
-  };
-  
-  // Monitor eval() calls (clickfix detection removed - only clipboard activity triggers alerts)
-  const originalEval = window.eval;
-  let evalCount = 0;
-  window.eval = function(code) {
-    evalCount++;
-    
-    // Note: Clickfix detection removed from eval() - only clipboard activity triggers alerts
-    // Still log eval calls for general monitoring
-    
-    // Throttle logging of eval calls
-    if (evalCount % 10 === 1) {
-      chrome.runtime.sendMessage({
-        action: 'logJavaScriptExecution',
-        url: window.location.href,
-        scriptUrl: 'eval',
-        details: {
-          type: 'eval',
-          codePreview: code.substring(0, 200),
-          codeLength: code.length,
-          callCount: evalCount
-        }
-      }).catch(err => console.error('Failed to send eval info:', err));
-    }
-    
-    return originalEval.call(window, code);
-  };
-  
-  // Monitor Function constructor (clickfix detection removed - only clipboard activity triggers alerts)
-  const OriginalFunction = window.Function;
-  let functionCount = 0;
-  window.Function = function(...args) {
-    functionCount++;
-    
-    // Note: Clickfix detection removed from Function constructor - only clipboard activity triggers alerts
-    // Still log Function constructor calls for general monitoring
-    
-    // Throttle logging
-    if (functionCount % 10 === 1) {
-      chrome.runtime.sendMessage({
-        action: 'logJavaScriptExecution',
-        url: window.location.href,
-        scriptUrl: 'Function constructor',
-        details: {
-          type: 'function_constructor',
-          argsCount: args.length,
-          bodyPreview: args[args.length - 1]?.substring(0, 200),
-          callCount: functionCount
-        }
-      }).catch(err => console.error('Failed to send Function info:', err));
-    }
-    
-    return new OriginalFunction(...args);
   };
   
   // Monitor paste events (minimal - paste usually happens outside browser)
@@ -615,109 +605,50 @@
       };
     }
     
-    // Intercept navigator.clipboard.writeText() - more common for clickfix
+    // Intercept navigator.clipboard.writeText() in content-script world (e.g. extension-injected code)
     const originalWriteText = navigator.clipboard.writeText;
     if (originalWriteText) {
       navigator.clipboard.writeText = function(text) {
         const timeSinceUserAction = Date.now() - lastUserAction;
         const isProgrammatic = timeSinceUserAction > userActionWindow;
-        
-        // Always check if programmatic, or check if suspicious regardless
         if (isProgrammatic || text) {
           checkClipboardWrite(text, isProgrammatic, timeSinceUserAction);
         }
-        
-        // Call original writeText
         return originalWriteText.call(this, text);
       };
     }
-    
-    // Check clipboard write for clickfix patterns
-    function checkClipboardWrite(text, isProgrammatic, timeSinceUserAction) {
-      if (!text || typeof text !== 'string') {
-        return;
+  }
+
+  // Inject script into page context so we see when PAGE JavaScript calls navigator.clipboard.writeText().
+  // Content script runs in an isolated world; the page's writeText() never hits our override above.
+  // We load the script from extension URL (not inline) to avoid CSP blocking inline script execution.
+  // The injected script runs in the page world, overrides writeText there, and dispatches a DOM event
+  // with the text; we listen for it and run checkClipboardWrite.
+  function injectPageContextClipboardMonitor() {
+    const script = document.createElement('script');
+    script.src = chrome.runtime.getURL('page-context-clipboard.js');
+    script.onload = function() { script.remove(); };
+    (document.head || document.documentElement).appendChild(script);
+    document.addEventListener('__extensionClipboardWriteText', function(e) {
+      if (e.detail && e.detail.text != null) {
+        checkClipboardWrite(e.detail.text, true, 0);
       }
-      
-      const trimmedText = text.trim();
-      
-      // Skip very short text (likely not malicious)
-      if (trimmedText.length < 20) {
-        return;
-      }
-      
-      // Skip if it's just a URL
-      if (trimmedText.match(/^https?:\/\/[^\s]+$/)) {
-        return;
-      }
-      
-      // Detect if it's PowerShell or suspicious
-      const detection = detectClickfix(trimmedText);
-      
-      // If programmatic write of suspicious content, always log
-      // If user-initiated but very suspicious (high risk score), also log
-      if (isProgrammatic && detection) {
-        // Programmatic write of suspicious content = high risk clickfix
-        detection.riskScore = Math.min(detection.riskScore + 30, 100); // Boost for programmatic
-        detection.issues.push('programmatic_clipboard_write');
-        detection.note = 'Website automatically wrote suspicious code to clipboard (CLICKFIX ATTACK)';
-        
-        chrome.runtime.sendMessage({
-          action: 'logClickfixDetection',
-          url: window.location.href,
-          source: 'clipboard_writeText_api',
-          detection: detection,
-          timestamp: new Date().toISOString(),
-          userAgent: navigator.userAgent,
-          details: {
-            wasProgrammatic: true,
-            timeSinceUserAction: timeSinceUserAction,
-            clipboardContentLength: trimmedText.length
-          }
-        }).catch(err => console.error('Failed to send clipboard detection:', err));
-        
-        // Log warning to console
-        console.warn('🚨 CLICKFIX DETECTED: Website wrote suspicious content to clipboard!', {
-          content: trimmedText.substring(0, 200),
-          riskScore: detection.riskScore,
-          isPowerShell: detection.isPowerShell
-        });
-        
-      } else if (detection && detection.riskScore >= 70) {
-        // Even if user-initiated, very high-risk content should be logged
-        chrome.runtime.sendMessage({
-          action: 'logClickfixDetection',
-          url: window.location.href,
-          source: 'clipboard_writeText_api',
-          detection: {
-            ...detection,
-            note: 'High-risk code written to clipboard (may have been user-initiated)'
-          },
-          timestamp: new Date().toISOString(),
-          userAgent: navigator.userAgent,
-          details: {
-            wasProgrammatic: false,
-            clipboardContentLength: trimmedText.length
-          }
-        }).catch(err => console.error('Failed to send clipboard detection:', err));
-      }
-    }
+    }, true);
   }
   
   // Start monitoring when DOM is ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-      monitorScriptLoading();
-      monitorPasteEvents();
-      monitorCopyEvents(); // PRIMARY clickfix detection - detects when user copies suspicious code
-      monitorConsoleIndicators();
-      monitorClipboardWrites(); // SECONDARY clickfix detection - detects programmatic clipboard writes
-    });
-  } else {
+  function startMonitoring() {
     monitorScriptLoading();
     monitorPasteEvents();
     monitorCopyEvents(); // PRIMARY clickfix detection - detects when user copies suspicious code
     monitorConsoleIndicators();
-    monitorClipboardWrites(); // SECONDARY clickfix detection - detects programmatic clipboard writes
+    monitorClipboardWrites(); // Content-script world: intercepts writeText in our world
+    injectPageContextClipboardMonitor(); // Page world: intercepts writeText when PAGE code calls it
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startMonitoring);
+  } else {
+    startMonitoring();
   }
   
   console.log('Network Logger content script loaded with clickfix detection');

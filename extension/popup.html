@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Network Logger & Blocker</title>
+  <title>CanIGoIn</title>
   <style>
     * {
       margin: 0;
@@ -381,7 +381,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🛡️ Network Logger & Blocker</h1>
+    <h1>CanIGoIn</h1>
     <p>Enhanced edition with statistics & backup</p>
   </div>
   
@@ -424,17 +424,20 @@
   <div id="youtube-tab" class="tab-content">
     <div class="section">
       <div class="toggle-group">
-        <label for="youtubeChannelBlocking">Enable YouTube Channel Blocking</label>
+        <label for="youtubeChannelWhitelistEnabled">Enable YouTube Channel Whitelist</label>
         <label class="switch">
-          <input type="checkbox" id="youtubeChannelBlocking">
+          <input type="checkbox" id="youtubeChannelWhitelistEnabled">
           <span class="slider"></span>
         </label>
+      </div>
+      <div class="info-box">
+        When enabled, only channels in the list below are allowed; all others are hidden.
       </div>
     </div>
     
     <div class="section">
-      <div class="section-title">Blocked Channels (one per line)</div>
-      <textarea id="blockedYouTubeChannels" placeholder="@channelhandle&#10;UCxxxxxxxxxxxxxxxxxx&#10;ChannelName"></textarea>
+      <div class="section-title">Whitelisted Channels (one per line)</div>
+      <textarea id="whitelistedYouTubeChannels" placeholder="@channelhandle&#10;UCxxxxxxxxxxxxxxxxxx&#10;ChannelName"></textarea>
       <div class="button-group">
         <button id="saveYouTubeChannels">Save Channels</button>
         <button id="clearYouTubeChannels" class="secondary">Clear</button>

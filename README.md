@@ -1,24 +1,31 @@
-# 🛡️ Network Logger - Complete Solution
+# CanIGoIn
 
-Enterprise-grade Chrome extension with unified Rust server for network monitoring, blocking, and extension tracking.
+Chrome extension with unified Rust server for network monitoring, clickfix detection, YouTube channel whitelisting, and extension tracking.
 
 ---
 
 ## 📁 Project Structure
 
 ```
-network-logger/
+CanIGoIn/
 ├── extension/          # Chrome Extension
 │   ├── manifest.json
 │   ├── background.js
-│   ├── popup.html
-│   └── ... (all extension files)
-├── server/            # Unified Rust Server
+│   ├── content.js
+│   ├── youtube-blocker.js
+│   ├── extension-monitor.js
+│   ├── popup.html / popup.js
+│   └── ... (icons, etc.)
+├── server/             # Unified Rust Server
 │   ├── Cargo.toml
 │   ├── src/main.rs
 │   ├── schema.sql
 │   └── README.md
-└── docs/              # Documentation
+├── examples/           # Test pages (clickfix, JS execution)
+│   ├── index.html
+│   ├── test-script.js
+│   └── README.md
+└── docs/                # Documentation
     ├── README.md
     ├── QUICKSTART.md
     └── ... (all guides)
@@ -35,30 +42,23 @@ cd server
 cargo run --release
 ```
 
-Server runs on `http://127.0.0.1:8080` with no setup required!
+Server runs on `http://127.0.0.1:8080` with no setup required.
 
 ### 2. Install Extension
 
-```bash
-# Open Chrome
-chrome://extensions/
-
-# Enable Developer Mode
-# Click "Load unpacked"
-# Select the "extension" folder
-```
+- Open Chrome → `chrome://extensions/`
+- Enable **Developer mode**
+- Click **Load unpacked** → select the `extension` folder
 
 ### 3. Configure Extension
 
-```
-1. Click extension icon
-2. Settings tab
-3. Log Server URL: http://127.0.0.1:8080/api/logs
-4. Blocklist Server URL: http://127.0.0.1:8080/api/blocklist
-5. Save
-```
+- Click the extension icon → **Settings**
+- **Server URL**: `http://localhost:8080/api/logs` (default)
+- **Features**: Enable only what you need (Report URLs, JS execution, Clickfix, Extension monitoring)
+- **YouTube**: Optional channel whitelist (only listed channels allowed)
+- Save
 
-**Done!** Extension is now logging network requests.
+**Done!** The extension sends logs and events to the server. Use **Client ID** (in Settings) to identify this browser across sessions.
 
 ---
 
@@ -66,238 +66,122 @@ chrome://extensions/
 
 ### Chrome Extension
 
-**4 Editions Available**:
-- ✅ **Basic** - Network logging & blocking
-- ✅ **Enhanced** - Retry logic, backup, statistics
-- ✅ **Extension Monitoring** - Track all Chrome extensions
-- ✅ **Server-Side Blocklist** - 100% server-managed (most secure)
+**Feature toggles (no slow delay when server is unavailable)**  
+- **Report URLs** – Send network request logs to the server (off by default)
+- **JS execution** – Report external script loads (script tags with `src`) to `/api/extensions` (on by default)
+- **Clickfix** – Detect clipboard/copy-based social engineering (e.g. PowerShell in console) and report to `/api/security` (on by default)
+- **Extension monitoring** – Report extension install/uninstall/update to `/api/extensions` (off by default)
 
-**Key Features**:
-- Network request logging
-- URL pattern blocking
-- YouTube channel blocking
-- Statistics dashboard
-- Extension monitoring
-- Server-managed blocklist
-- Export/import configuration
-- Local backup
+**Core**  
+- **Client ID** – Persistent identifier sent in all requests (`/api/logs`, `/api/extensions`, `/api/security`); visible in Settings, copy/generate.
+- **Compression** – Batches sent as gzip when enabled; server decompresses automatically.
+- **Timeout** – Requests abort after 5s so the extension doesn’t hang when the server is down.
+- **Blocklist** – URL patterns and (legacy) YouTube blocklist from server; optional domain whitelist to reduce logging.
+
+**YouTube channel whitelist**  
+- **Whitelist mode** – Only channels in the list are allowed; all others are hidden or blocked.
+- **Where it applies**: Home/search results (video tiles), channel pages (e.g. `/@PirateSoftware/videos`), and **direct watch links** (`/watch?v=...`). Non-whitelisted watch pages show a full-screen “channel not in whitelist” overlay and no playback.
+- **Matching** – Handles and display names are normalized (e.g. `@PirateSoftware` matches “Pirate Software”). Supports `/channel/ID`, `/@handle`, `/user/name`.
+- **Empty whitelist** – If whitelist is enabled but empty, all YouTube content is hidden/blocked.
+
+**Security**  
+- **Clickfix detection** – Detects suspicious copy-paste (PowerShell, base64, etc.) and sends events to `POST /api/security`.
+- **Extension security scan** – Optional; results sent to `/api/security`.
 
 ### Rust Server
 
-**2 Modes**:
-- ✅ **Simple** - In-memory, zero config, perfect for testing
-- ✅ **Production** - PostgreSQL, Redis, unlimited storage
+**Modes**  
+- **Simple** – In-memory, zero config, last 1000 logs; ideal for testing.
+- **Production** – PostgreSQL (and optional Redis), unlimited storage, `client_id` stored with logs and extension events.
 
-**Features**:
-- High performance (10,000+ req/s)
-- RESTful API
-- CORS enabled
-- Health checks
-- Blocklist management
-- Extension event tracking
+**Endpoints**  
+- `GET /health` – Health check.
+- `POST /api/logs` – Batch network logs (optional gzip, optional `client_id`).
+- `GET /api/logs` – Get logs (simple mode only).
+- `GET /api/blocklist` / `POST /api/blocklist` – URL and YouTube blocklist.
+- `POST /api/extensions` – Extension lifecycle/monitoring events (optional gzip, `client_id`).
+- `POST /api/security` – Security events (clickfix, extension security scan); same JSON shape as extensions, optional gzip and `client_id`.
+
+**Behavior**  
+- **Gzip** – All POST bodies that send JSON accept `Content-Encoding: gzip`; on decompress error the server falls back to plain UTF-8 (no 400).
+- **client_id** – Stored in production for logs and extension_events; used for correlation and analytics.
+
+See **`server/README.md`** for full API and schema.
+
+---
+
+## How it works (technical)
+
+### Content script vs page context (isolated worlds)
+
+Chrome extensions run **content scripts** in an **isolated world**: they share the **DOM** with the page but have a **separate JavaScript context**. So:
+
+- **Content script** (`content.js`) can listen to DOM events (e.g. `copy`) and see the same `document` as the page.
+- **Content script** cannot see when the **page’s** JavaScript calls `navigator.clipboard.writeText()` or `eval()` — the page uses its own `navigator` and `window`, so overrides in the content script world are never used by page code.
+
+### Clickfix detection
+
+1. **Copy (primary)**  
+   The user selects text and copies (Ctrl+C). The **copy** event fires on the document. The content script listens with `document.addEventListener('copy', ...)`, reads the selection, runs clickfix pattern detection, and sends the result to the background → `POST /api/security`. No injection needed; the DOM event is shared.
+
+2. **Programmatic clipboard write (secondary)**  
+   When **page** code calls `navigator.clipboard.writeText(text)`, that runs in the page world, so the content script’s override of `writeText` is never called. To detect it we **inject a script into the page context**:
+   - The content script adds a `<script src=".../page-context-clipboard.js">` to the document. That script is loaded from the extension (via `web_accessible_resources`) and runs in the **page** world.
+   - The injected script overrides `navigator.clipboard.writeText` in the page world. When the page calls it, our override runs, calls the real `writeText`, then dispatches a **custom DOM event** (e.g. `__extensionClipboardWriteText`) with `detail: { text }`.
+   - The content script listens for that event on `document`. Because the event is on the shared DOM, the content script receives it, runs clickfix detection on `e.detail.text`, and sends to the background → `POST /api/security`.
+
+We use a **separate script file** (not inline script) so the page’s Content Security Policy does not block execution (inline script would require a nonce/hash).
+
+### JS execution (external scripts only)
+
+The content script observes the DOM for `<script src="...">` elements (via MutationObserver and `document.createElement` override). When an external script is loaded, it sends `javascript_execution` to the background → `POST /api/extensions`. This stays entirely in the content script world; no page-context injection is used for script loading.
+
+### Event flow summary
+
+| Source | Where it runs | How content script sees it | Then |
+|--------|----------------|----------------------------|------|
+| User copies text | DOM `copy` event | Content script listens on `document` | Detect clickfix → background → `/api/security` |
+| Page calls `writeText()` | Page world | Injected script overrides, dispatches custom event; content script listens | Detect clickfix → background → `/api/security` |
+| External script load | DOM (script tag) | Content script observes DOM / script elements | background → `/api/extensions` |
+
+### YouTube whitelist
+
+The extension injects `youtube-blocker.js` only on `*://*.youtube.com/*`. It reads the whitelist from `chrome.storage`, hides or shows video elements and the watch page based on channel (from links or page URL), and blocks the watch page with a full-screen overlay when the channel is not whitelisted.
 
 ---
 
 ## 📖 Documentation
 
-### Getting Started
-- **`docs/README.md`** - Complete installation guide
-- **`docs/QUICKSTART.md`** - 5-minute setup
-- **`server/README.md`** - Server documentation
-
-### Extension Guides
-- **`docs/ENHANCEMENTS.md`** - All features explained
-- **`docs/EXTENSION_MONITORING.md`** - Extension tracking
-- **`docs/SERVER_BLOCKLIST_GUIDE.md`** - Server-side blocklist
-- **`docs/YOUTUBE_BLOCKING.md`** - YouTube blocking
-
-### Advanced
-- **`docs/MIGRATION_GUIDE.md`** - Upgrade between editions
-- **`docs/DEPLOYMENT.md`** - Production deployment
-- **`docs/ADVANCED_CONFIG.md`** - Configuration options
+- **`docs/README.md`** – Full installation and usage.
+- **`docs/QUICKSTART.md`** – Short setup.
+- **`server/README.md`** – Server API, modes, schema, troubleshooting.
+- **`examples/README.md`** – How to run the test page (clickfix, JS execution) and what to expect on the server.
 
 ---
 
 ## 🎯 Use Cases
 
-### Personal Use
-- Block distracting websites
-- Track browsing patterns
-- Monitor YouTube usage
-- Privacy protection
-
-### Corporate/Enterprise
-- Network monitoring across organization
-- Centralized blocklist management
-- Extension compliance tracking
-- Security threat detection
-- Audit trails
-
-### Security Research
-- Malware analysis
-- Traffic inspection
-- Extension behavior monitoring
-- Threat intelligence
+- **Personal** – Limit YouTube to whitelisted channels, reduce distraction, basic privacy.
+- **Corporate** – Network and extension monitoring, security event collection (clickfix), audit by `client_id`.
+- **Security research** – Traffic inspection, extension behavior, threat detection.
 
 ---
 
-## 🔧 Server Modes
+## 📊 API Summary
 
-### Simple Mode (Default)
-
-**Perfect for**: Testing, development, single user
-
-```bash
-cd server
-cargo run --release -- --mode simple
-```
-
-**Features**:
-- ✅ Zero configuration
-- ✅ In-memory storage
-- ✅ Fast startup
-- ✅ Stores last 1000 logs
-
-### Production Mode
-
-**Perfect for**: Multiple users, persistent storage
-
-```bash
-# Setup database
-createdb network_logger
-psql network_logger < server/schema.sql
-
-# Run server
-cd server
-cargo build --release --features production
-cargo run --release --features production -- \
-  --mode production \
-  --database-url "postgresql://localhost/network_logger"
-```
-
-**Features**:
-- ✅ PostgreSQL storage
-- ✅ Unlimited logs
-- ✅ Redis caching (optional)
-- ✅ Production-ready
+| Endpoint           | Method | Purpose                    |
+|--------------------|--------|----------------------------|
+| `/health`          | GET    | Health check               |
+| `/api/logs`        | POST   | Batch network logs (gzip, client_id) |
+| `/api/logs`        | GET    | Get logs (simple mode)     |
+| `/api/blocklist`   | GET    | Get blocklist              |
+| `/api/blocklist`   | POST   | Update blocklist           |
+| `/api/extensions`  | POST   | Extension events (gzip, client_id) |
+| `/api/security`    | POST   | Security events (gzip, client_id) |
 
 ---
 
-## 📊 API Endpoints
-
-```bash
-# Health check
-GET /health
-
-# Post logs
-POST /api/logs
-
-# Get logs (simple mode)
-GET /api/logs
-
-# Get blocklist
-GET /api/blocklist
-
-# Update blocklist
-POST /api/blocklist
-
-# Extension events
-POST /api/extensions
-```
-
-See `server/README.md` for detailed API documentation.
-
----
-
-## 🎨 Extension Editions
-
-### Switch Between Editions
-
-```bash
-cd extension
-
-# Enhanced Edition (recommended)
-cp manifest-enhanced.json manifest.json
-cp background-enhanced.js background.js
-cp popup-enhanced.html popup.html
-cp popup-enhanced.js popup.js
-
-# Extension Monitoring
-cp manifest-with-extensions.json manifest.json
-cp background-with-extensions.js background.js
-cp popup-with-extensions.html popup.html
-cp popup-with-extensions.js popup.js
-
-# Server-Side Blocklist (most secure)
-cp background-server-blocklist.js background.js
-cp popup-server-blocklist.html popup.html
-cp popup-server-blocklist.js popup.js
-
-# Reload extension in Chrome
-chrome://extensions/ → Reload
-```
-
----
-
-## 📈 Performance
-
-### Extension
-- Minimal overhead (<1% CPU)
-- Small memory footprint (~20MB)
-- Efficient batching
-- Background processing
-
-### Server (Simple Mode)
-- ~50,000 requests/second
-- <1ms latency
-- ~50MB memory
-
-### Server (Production Mode)
-- ~10,000 requests/second
-- <10ms latency
-- ~100MB memory base
-- PostgreSQL scales to millions of logs
-
----
-
-## 🔒 Security
-
-### Extension
-- No sensitive data storage
-- Data sanitization
-- Whitelist support
-- Server-managed blocklist (cannot be bypassed)
-
-### Server
-- CORS configured
-- Input validation
-- SQL injection protection
-- Production mode supports authentication
-
----
-
-## 🛠️ Requirements
-
-### Extension
-- Chrome 88+ (Manifest V3)
-- No additional dependencies
-
-### Server
-
-**Simple Mode**:
-- Rust 1.70+
-- No database required
-
-**Production Mode**:
-- Rust 1.70+
-- PostgreSQL 12+
-- Redis 6+ (optional)
-
----
-
-## 📦 Installation
-
-### Complete Setup
+## 📦 Installation (full)
 
 ```bash
 # 1. Start server
@@ -305,101 +189,41 @@ cd server
 cargo run --release
 
 # 2. Load extension
-chrome://extensions/
-Load unpacked → Select "extension" folder
+# chrome://extensions/ → Load unpacked → extension/
 
-# 3. Configure extension
-Click icon → Settings
-Server URL: http://127.0.0.1:8080/api/logs
-Blocklist URL: http://127.0.0.1:8080/api/blocklist
-Save
+# 3. Configure
+# Icon → Settings: Server URL, Features, YouTube whitelist, Client ID
+# Save
 
-# 4. Test
-Browse some websites
-Check extension popup → Statistics tab
+# 4. Test (optional)
+# Open examples/index.html (e.g. http://localhost:9000/) to trigger clickfix/JS events
 ```
 
 ---
 
 ## 🐛 Troubleshooting
 
-### Extension not loading
-```
-1. Check manifest.json is valid
-2. Ensure all files are present
-3. Check Chrome console for errors
-```
+- **Extension slow when server is down** – Ensure “Report URLs” is off if you don’t need it; requests timeout after 5s.
+- **YouTube whitelist not applied** – Reload extension and refresh YouTube; ensure “Enable YouTube Channel Whitelist” is on and channels are saved (e.g. `@PirateSoftware`).
+- **Direct watch link still plays** – Reload the page; the overlay runs after the owner/channel is in the DOM (retries at 200ms, 600ms, 1200ms).
+- **Server “invalid gzip”** – Server does not return 400; it falls back to plain JSON. Check client sends valid gzip when using `Content-Encoding: gzip`.
 
-### Server not starting
-```bash
-# Check port availability
-lsof -i :8080
-
-# Use different port
-cargo run -- --port 3000
-```
-
-### Logs not appearing
-```
-1. Check server is running
-2. Verify server URL in extension settings
-3. Check CORS is enabled
-4. Look at browser console for errors
-```
+More: **`server/README.md`**, **`docs/README.md`**.
 
 ---
 
-## 📚 Learn More
+## ✅ Summary
 
-### Documentation Files
-- `docs/README.md` - **Start here** (complete guide)
-- `docs/QUICKSTART.md` - Fastest setup
-- `server/README.md` - Server documentation
-
-### Guides
-- `docs/ENHANCEMENTS.md` - Feature details
-- `docs/EXTENSION_MONITORING.md` - Extension tracking
-- `docs/SERVER_BLOCKLIST_GUIDE.md` - Blocklist management
+| Component   | What you get |
+|------------|----------------|
+| **Extension** | Feature toggles, Client ID, gzip, YouTube whitelist (feeds + watch + channel pages), clickfix → `/api/security`, extension events → `/api/extensions` |
+| **Server**    | Simple + Production modes, `/api/logs`, `/api/extensions`, `/api/security`, gzip decompression, `client_id` storage in production |
+| **Docs**      | READMEs, API docs, examples, troubleshooting |
 
 ---
 
-## ✅ What's Included
-
-### Extension Components
-- ✅ 4 editions (basic, enhanced, monitoring, server-blocklist)
-- ✅ Complete source code
-- ✅ All necessary files
-- ✅ Icons and assets
-
-### Server Components
-- ✅ Unified Rust server
-- ✅ Simple & production modes
-- ✅ Database schema
-- ✅ Complete documentation
-
-### Documentation
-- ✅ 15+ guides
-- ✅ 35,000+ words
-- ✅ API documentation
-- ✅ Use case examples
-- ✅ Troubleshooting tips
-
----
-
-## 🎉 Summary
-
-| Component | What You Get |
-|-----------|--------------|
-| **Extension** | 4 editions, full-featured, production-ready |
-| **Server** | Unified Rust server, 2 modes, high-performance |
-| **Documentation** | Complete guides, API docs, examples |
-| **Total** | Enterprise-grade solution |
-
----
-
-**Everything you need to deploy a complete network monitoring solution!** 🚀
-
-For detailed instructions, see:
-- **Extension**: `docs/README.md`
-- **Server**: `server/README.md`
-- **Quick Start**: `docs/QUICKSTART.md`
+**For detailed instructions:**  
+- **Extension & usage**: `docs/README.md`  
+- **Server**: `server/README.md`  
+- **Quick setup**: `docs/QUICKSTART.md`  
+- **Test page**: `examples/README.md`

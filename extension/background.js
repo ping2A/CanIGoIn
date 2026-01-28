@@ -9,12 +9,12 @@ const CONFIG = {
   batchInterval: 5000,
   enableBlocking: false,
   blockList: [],
-  youtubeChannelBlocking: false,
-  blockedYouTubeChannels: [],
+  youtubeChannelWhitelistEnabled: false,
+  whitelistedYouTubeChannels: [],
   
   // Advanced settings
   maxBufferSize: 1000,           // Prevent memory overflow
-  enableCompression: false,       // Compress logs (requires server support)
+  enableCompression: true,        // Compress logs with gzip to reduce traffic
   enableLocalBackup: true,        // Save logs to IndexedDB as backup
   maxRetries: 3,                  // Retry failed uploads
   retryDelay: 5000,              // Delay between retries (ms)
@@ -146,15 +146,15 @@ let extensionMonitoringEnabled = true;
 
 // Load configuration from storage
 chrome.storage.local.get([
-  'blockList', 'enableBlocking', 'blockedYouTubeChannels', 'youtubeChannelBlocking',
+  'blockList', 'enableBlocking', 'whitelistedYouTubeChannels', 'youtubeChannelWhitelistEnabled',
   'serverUrl', 'maxBufferSize', 'enableLocalBackup', 'domainWhitelist', 'enableDomainWhitelist',
   'enableReportUrls', 'enableJsExecution', 'enableClickfix', 'extensionMonitoring',
   'clientId'
 ], (result) => {
   if (result.blockList) CONFIG.blockList = result.blockList;
   if (result.enableBlocking !== undefined) CONFIG.enableBlocking = result.enableBlocking;
-  if (result.blockedYouTubeChannels) CONFIG.blockedYouTubeChannels = result.blockedYouTubeChannels;
-  if (result.youtubeChannelBlocking !== undefined) CONFIG.youtubeChannelBlocking = result.youtubeChannelBlocking;
+  if (result.whitelistedYouTubeChannels) CONFIG.whitelistedYouTubeChannels = result.whitelistedYouTubeChannels;
+  if (result.youtubeChannelWhitelistEnabled !== undefined) CONFIG.youtubeChannelWhitelistEnabled = result.youtubeChannelWhitelistEnabled;
   if (result.serverUrl) {
     CONFIG.serverUrl = result.serverUrl;
     console.log('✅ Server URL loaded from storage:', CONFIG.serverUrl);
@@ -339,11 +339,39 @@ function sanitizeData(data) {
   return sanitized;
 }
 
-function compressData(data) {
-  // Simple compression using JSON string manipulation
-  // For real compression, you'd use a library like pako
-  const str = JSON.stringify(data);
-  return str;
+// Compress data using gzip (CompressionStream API available in Chrome extensions)
+async function compressData(data) {
+  try {
+    const jsonStr = JSON.stringify(data);
+    const encoder = new TextEncoder();
+    const stream = new CompressionStream('gzip');
+    const writer = stream.writable.getWriter();
+    const reader = stream.readable.getReader();
+    
+    writer.write(encoder.encode(jsonStr));
+    writer.close();
+    
+    const chunks = [];
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+    
+    // Combine chunks into single Uint8Array
+    const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+      result.set(chunk, offset);
+      offset += chunk.length;
+    }
+    
+    return result;
+  } catch (error) {
+    console.warn('Compression failed, falling back to uncompressed:', error);
+    return JSON.stringify(data);
+  }
 }
 
 async function saveToLocalBackup(logs) {
@@ -694,11 +722,20 @@ async function sendLogBatch() {
       }))
     };
     
-    const payloadStr = CONFIG.enableCompression ? compressData(payload) : JSON.stringify(payload);
-    statistics.bytesSent += payloadStr.length;
+    const payloadBody = CONFIG.enableCompression 
+      ? await compressData(payload) 
+      : JSON.stringify(payload);
+    
+    const originalSize = JSON.stringify(payload).length;
+    const compressedSize = typeof payloadBody === 'string' ? payloadBody.length : payloadBody.byteLength;
+    statistics.bytesSent += compressedSize;
+    
+    if (CONFIG.enableCompression && compressedSize < originalSize) {
+      console.log(`📦 Compressed payload: ${originalSize} → ${compressedSize} bytes (${Math.round((1 - compressedSize/originalSize) * 100)}% reduction)`);
+    }
     
     // Send network logs
-    await sendWithRetry(payload, 0, CONFIG.serverUrl);
+    await sendWithRetry(payload, 0, CONFIG.serverUrl, payloadBody);
   }
   
   // Send special events to dedicated endpoints:
@@ -723,10 +760,19 @@ async function sendLogBatch() {
           data: event
         };
         
+        const extensionBody = CONFIG.enableCompression 
+          ? await compressData(extensionPayload)
+          : JSON.stringify(extensionPayload);
+        
+        const headers = { 'Content-Type': 'application/json' };
+        if (CONFIG.enableCompression && extensionBody instanceof Uint8Array) {
+          headers['Content-Encoding'] = 'gzip';
+        }
+        
         await fetchWithTimeout(extensionUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(extensionPayload)
+          headers: headers,
+          body: extensionBody
         }, CONFIG.fetchTimeoutMs);
       } catch (error) {
         console.error('Failed to send special event:', error);
@@ -735,16 +781,22 @@ async function sendLogBatch() {
   }
 }
 
-async function sendWithRetry(payload, attempt, url = null) {
+async function sendWithRetry(payload, attempt, url = null, bodyOverride = null) {
   const targetUrl = url || CONFIG.serverUrl;
   try {
+    const body = bodyOverride !== null ? bodyOverride : JSON.stringify(payload);
+    const headers = {
+      'Content-Type': 'application/json',
+    };
+    
+    if (CONFIG.enableCompression && body instanceof Uint8Array) {
+      headers['Content-Encoding'] = 'gzip';
+    }
+    
     const response = await fetchWithTimeout(targetUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(CONFIG.enableCompression && { 'Content-Encoding': 'gzip' })
-      },
-      body: JSON.stringify(payload)
+      headers: headers,
+      body: body
     }, CONFIG.fetchTimeoutMs);
     
     if (!response.ok) {
@@ -851,21 +903,30 @@ function updateStatistics() {
 // YouTube Channel Blocking
 // ============================================================================
 
+// Whitelist: block channel if it is NOT in the whitelist (when whitelist is enabled and non-empty)
 function shouldBlockYouTubeChannel(url) {
-  if (!CONFIG.youtubeChannelBlocking) return { shouldBlock: false };
+  if (!CONFIG.youtubeChannelWhitelistEnabled || CONFIG.whitelistedYouTubeChannels.length === 0) {
+    return { shouldBlock: false };
+  }
   
   const channelInfo = parseYouTubeUrl(url);
-  if (!channelInfo) return { shouldBlock: false };
+  if (!channelInfo) return { shouldBlock: true }; // Unknown URL, block
   
-  const shouldBlock = CONFIG.blockedYouTubeChannels.some(blockedChannel => {
-    if (channelInfo.channelId && blockedChannel === channelInfo.channelId) return true;
-    if (channelInfo.handle && blockedChannel === channelInfo.handle) return true;
-    if (channelInfo.customUrl && blockedChannel === channelInfo.customUrl) return true;
-    if (channelInfo.username && blockedChannel === channelInfo.username) return true;
+  // Normalize like content script: lowercase, strip @, collapse spaces (so "Pirate Software" matches "@PirateSoftware")
+  function norm(s) {
+    return (s || '').toLowerCase().replace(/^@/, '').replace(/\s+/g, '').trim();
+  }
+  const isWhitelisted = CONFIG.whitelistedYouTubeChannels.some(allowed => {
+    const n = norm(allowed);
+    if (!n) return false;
+    if (channelInfo.channelId && norm(channelInfo.channelId) === n) return true;
+    if (channelInfo.handle && norm(channelInfo.handle) === n) return true;
+    if (channelInfo.customUrl && norm(channelInfo.customUrl) === n) return true;
+    if (channelInfo.username && norm(channelInfo.username) === n) return true;
     return false;
   });
   
-  return { shouldBlock, channelInfo };
+  return { shouldBlock: !isWhitelisted, channelInfo };
 }
 
 function parseYouTubeUrl(url) {

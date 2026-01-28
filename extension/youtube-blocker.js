@@ -1,57 +1,70 @@
-// YouTube-specific content script for channel blocking
-// This script hides videos from blocked channels in feeds and search results
+// YouTube-specific content script for channel whitelist
+// Only channels in the whitelist are allowed; all others are hidden
 
 (function() {
   'use strict';
   
-  let blockedChannels = [];
-  let youtubeChannelBlocking = true;
+  let whitelistedChannels = [];
+  let youtubeChannelWhitelistEnabled = false;
   
-  // Load blocked channels from storage
-  function loadBlockedChannels() {
-    chrome.storage.local.get(['blockedYouTubeChannels', 'youtubeChannelBlocking'], (result) => {
-      if (result.blockedYouTubeChannels) {
-        blockedChannels = result.blockedYouTubeChannels.map(ch => ch.toLowerCase().trim());
+  // Load whitelisted channels from storage
+  function loadWhitelistedChannels() {
+    chrome.storage.local.get(['whitelistedYouTubeChannels', 'youtubeChannelWhitelistEnabled'], (result) => {
+      if (result.whitelistedYouTubeChannels) {
+        whitelistedChannels = result.whitelistedYouTubeChannels.map(ch => ch.toLowerCase().trim()).filter(Boolean);
       }
-      if (result.youtubeChannelBlocking !== undefined) {
-        youtubeChannelBlocking = result.youtubeChannelBlocking;
+      if (result.youtubeChannelWhitelistEnabled !== undefined) {
+        youtubeChannelWhitelistEnabled = result.youtubeChannelWhitelistEnabled;
       }
       
-      // Process existing videos when settings are loaded
-      if (youtubeChannelBlocking) {
-        processVideos();
+      if (youtubeChannelWhitelistEnabled) {
+        scheduleProcessing();
       }
     });
   }
   
   // Listen for settings changes
   chrome.storage.onChanged.addListener((changes) => {
-    if (changes.blockedYouTubeChannels) {
-      blockedChannels = (changes.blockedYouTubeChannels.newValue || [])
-        .map(ch => ch.toLowerCase().trim());
+    if (changes.whitelistedYouTubeChannels) {
+      whitelistedChannels = (changes.whitelistedYouTubeChannels.newValue || [])
+        .map(ch => ch.toLowerCase().trim()).filter(Boolean);
       processVideos();
     }
-    if (changes.youtubeChannelBlocking) {
-      youtubeChannelBlocking = changes.youtubeChannelBlocking.newValue;
-      if (!youtubeChannelBlocking) {
-        // Re-show all hidden videos
+    if (changes.youtubeChannelWhitelistEnabled !== undefined) {
+      youtubeChannelWhitelistEnabled = changes.youtubeChannelWhitelistEnabled.newValue;
+      if (!youtubeChannelWhitelistEnabled) {
         document.querySelectorAll('[data-blocked-by-extension]').forEach(el => {
           el.removeAttribute('data-blocked-by-extension');
           el.style.display = '';
         });
+        removeWatchPageBlock();
       } else {
-        processVideos();
+        scheduleProcessing();
       }
     }
   });
   
-  // Check if a channel should be blocked
+  // Returns true if the channel should be BLOCKED (hidden).
+  // Whitelist logic: block if whitelist is enabled and channel is NOT in the whitelist.
+  // If whitelist is enabled but empty, block everything (strict whitelist).
   function isChannelBlocked(channelUrl, channelName) {
-    if (!youtubeChannelBlocking || blockedChannels.length === 0) {
-      return false;
+    if (!youtubeChannelWhitelistEnabled) {
+      return false; // Whitelist disabled = allow all
     }
     
-    // Extract channel identifier from URL
+    // Whitelist enabled: block if channel is NOT in the whitelist
+    // If whitelist is empty, block everything (strict whitelist behavior)
+    const isWhitelisted = whitelistedChannels.length > 0 && isChannelInWhitelist(channelUrl, channelName);
+    return !isWhitelisted;
+  }
+  
+  // Normalize for comparison: lowercase, strip @, collapse spaces (so "Pirate Software" matches "@PirateSoftware")
+  function normalizeChannelKey(str) {
+    if (!str || typeof str !== 'string') return '';
+    return str.toLowerCase().replace(/^@/, '').replace(/\s+/g, '').trim();
+  }
+  
+  function isChannelInWhitelist(channelUrl, channelName) {
     let channelId = null;
     if (channelUrl) {
       const channelMatch = channelUrl.match(/\/channel\/([^\/\?]+)/);
@@ -63,61 +76,100 @@
       else if (userMatch) channelId = userMatch[1];
     }
     
-    // Check against blocked list
-    return blockedChannels.some(blocked => {
-      const normalizedBlocked = blocked.replace(/^@/, '');
-      
-      // Check channel ID
-      if (channelId) {
-        const normalizedId = channelId.toLowerCase().replace(/^@/, '');
-        if (normalizedId === normalizedBlocked) return true;
-      }
-      
-      // Check channel name
-      if (channelName) {
-        const normalizedName = channelName.toLowerCase().trim();
-        if (normalizedName === normalizedBlocked) return true;
-      }
-      
+    const normalizedChannelId = channelId ? normalizeChannelKey(channelId) : '';
+    const normalizedChannelName = normalizeChannelKey(channelName || '');
+    
+    return whitelistedChannels.some(allowed => {
+      const normalizedAllowed = normalizeChannelKey(allowed);
+      if (!normalizedAllowed) return false;
+      if (normalizedChannelId && normalizedChannelId === normalizedAllowed) return true;
+      if (normalizedChannelName && normalizedChannelName === normalizedAllowed) return true;
       return false;
     });
   }
   
-  // Process video elements and hide those from blocked channels
-  function processVideos() {
-    if (!youtubeChannelBlocking) return;
+  // Get channel info from current page URL (for channel pages like /@PirateSoftware/videos)
+  function getChannelFromPageUrl() {
+    const origin = window.location.origin;
+    const pathname = window.location.pathname;
     
-    // Find all video renderers (home feed, search results, etc.)
+    const handleMatch = pathname.match(/\/@([^\/]+)/);
+    if (handleMatch) {
+      const handle = '@' + handleMatch[1];
+      return { channelUrl: origin + '/' + handle, channelHandle: handle };
+    }
+    
+    const channelMatch = pathname.match(/\/channel\/([^\/]+)/);
+    if (channelMatch) {
+      const channelId = channelMatch[1];
+      return { channelUrl: origin + '/channel/' + channelId, channelId: channelId };
+    }
+    
+    const userMatch = pathname.match(/\/user\/([^\/]+)/);
+    if (userMatch) {
+      const username = userMatch[1];
+      return { channelUrl: origin + '/user/' + username, channelUsername: username };
+    }
+    
+    return null;
+  }
+  
+  function isChannelPage() {
+    const pathname = window.location.pathname;
+    return /\/@[^\/]+\/(videos|shorts|streams|playlists|community|about)/.test(pathname) ||
+           /\/channel\/[^\/]+\/(videos|shorts|streams|playlists|community|about)/.test(pathname) ||
+           /\/user\/[^\/]+\/(videos|shorts|streams|playlists|community|about)/.test(pathname) ||
+           /\/c\/[^\/]+\/(videos|shorts|streams|playlists|community|about)/.test(pathname);
+  }
+  
+  // Process video elements: hide those not in the whitelist
+  function processVideos() {
+    if (!youtubeChannelWhitelistEnabled) return;
+    
+    if (!isWatchPage()) removeWatchPageBlock();
+    
+    // Get channel context from page URL if we're on a channel page
+    const pageChannelInfo = isChannelPage() ? getChannelFromPageUrl() : null;
+    
     const videoRenderers = document.querySelectorAll(
-      'ytd-video-renderer, ytd-grid-video-renderer, ytd-compact-video-renderer, ytd-playlist-video-renderer'
+      'ytd-video-renderer, ytd-grid-video-renderer, ytd-compact-video-renderer, ytd-playlist-video-renderer, ytd-rich-item-renderer'
     );
     
     videoRenderers.forEach(video => {
-      // Skip if already processed
-      if (video.hasAttribute('data-checked-by-extension')) return;
-      video.setAttribute('data-checked-by-extension', 'true');
+      // Re-check every time (clear so we re-evaluate when whitelist is enabled/changed)
+      video.removeAttribute('data-checked-by-extension');
+      video.removeAttribute('data-blocked-by-extension');
+      video.style.display = '';
       
-      // Find channel link
-      const channelLink = video.querySelector('a.yt-simple-endpoint.style-scope.yt-formatted-string[href*="/@"], a.yt-simple-endpoint.style-scope.yt-formatted-string[href*="/channel/"], a.yt-simple-endpoint.style-scope.yt-formatted-string[href*="/user/"]');
+      // Find channel link – use broad selectors (YouTube DOM changes often)
+      const channelLink = video.querySelector('a[href*="/channel/"], a[href*="/@"], a[href*="/user/"]');
       
-      if (channelLink) {
-        const channelUrl = channelLink.href;
-        const channelName = channelLink.textContent.trim();
-        
-        if (isChannelBlocked(channelUrl, channelName)) {
-          // Hide the video
-          video.style.display = 'none';
-          video.setAttribute('data-blocked-by-extension', 'true');
-          
-          console.log(`Blocked video from channel: ${channelName}`);
-          
-          // Optionally, you could replace with a message instead of hiding
-          // createBlockedVideoMessage(video, channelName);
+      let channelUrl = '';
+      let channelName = '';
+      if (channelLink && channelLink.href) {
+        channelUrl = channelLink.href;
+        channelName = (channelLink.textContent || '').trim();
+      } else if (pageChannelInfo) {
+        // On a channel page: if video doesn't have explicit channel link, use page's channel
+        channelUrl = pageChannelInfo.channelUrl || '';
+        // Try to get channel name from page header, or use handle/ID as fallback
+        const nameEl = document.querySelector('ytd-channel-name #text');
+        channelName = (nameEl?.textContent?.trim() || pageChannelInfo.channelHandle || pageChannelInfo.channelId || pageChannelInfo.channelUsername || '');
+      }
+      
+      // When whitelist is on: hide if channel is blocked, or if we can't determine channel (treat as not whitelisted)
+      const shouldHide = isChannelBlocked(channelUrl, channelName);
+      if (shouldHide) {
+        video.style.display = 'none';
+        video.setAttribute('data-blocked-by-extension', 'true');
+        if (channelName) {
+          console.log(`Hidden video (channel not in whitelist): ${channelName}`);
         }
       }
+      video.setAttribute('data-checked-by-extension', 'true');
     });
     
-    // Also check for channel pages themselves
+      // Also check for channel pages themselves
     const channelHeader = document.querySelector('ytd-c4-tabbed-header-renderer, ytd-channel-tagline-renderer');
     if (channelHeader) {
       const channelUrl = window.location.href;
@@ -125,10 +177,101 @@
       const channelName = channelNameEl ? channelNameEl.textContent.trim() : '';
       
       if (isChannelBlocked(channelUrl, channelName)) {
-        // We're on a blocked channel page, show a message
         showChannelBlockedMessage(channelName);
       }
     }
+    
+    // On watch page: block the video if channel is not whitelisted (retry so we catch late-rendered owner)
+    if (isWatchPage()) {
+      processWatchPage();
+      [200, 600, 1200].forEach(ms => setTimeout(() => { if (isWatchPage()) processWatchPage(); }, ms));
+    }
+  }
+  
+  function isWatchPage() {
+    return /^\/watch(\?|$)/.test(window.location.pathname + (window.location.search || ''));
+  }
+  
+  // On /watch page: get channel from owner area, hide player and show overlay if blocked
+  function processWatchPage() {
+    if (!youtubeChannelWhitelistEnabled) {
+      removeWatchPageBlock();
+      return;
+    }
+    
+    const ownerRenderer = document.querySelector('ytd-video-owner-renderer');
+    let channelUrl = '';
+    let channelName = '';
+    if (ownerRenderer) {
+      const channelLink = ownerRenderer.querySelector('a[href*="/channel/"], a[href*="/@"], a[href*="/user/"]');
+      if (channelLink && channelLink.href) {
+        channelUrl = channelLink.href;
+        channelName = (channelLink.textContent || '').trim();
+      }
+      if (!channelName) {
+        const nameEl = ownerRenderer.querySelector('ytd-channel-name #text, yt-formatted-string#text');
+        if (nameEl) channelName = nameEl.textContent.trim();
+      }
+    }
+    
+    if (isChannelBlocked(channelUrl, channelName)) {
+      blockWatchPage(channelName || 'Unknown channel');
+    } else {
+      removeWatchPageBlock();
+    }
+  }
+  
+  function blockWatchPage(channelName) {
+    if (document.getElementById('extension-watch-block-overlay')) return;
+    
+    // Pause video if present
+    const video = document.querySelector('video.html5-main-video');
+    if (video) {
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+    }
+    
+    const overlay = document.createElement('div');
+    overlay.id = 'extension-watch-block-overlay';
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.92);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9998;
+      font-family: Arial, sans-serif;
+      color: #fff;
+      text-align: center;
+      padding: 20px;
+      box-sizing: border-box;
+    `;
+    overlay.innerHTML = `
+      <div style="max-width: 400px;">
+        <div style="font-size: 64px; margin-bottom: 20px;">🚫</div>
+        <div style="font-size: 22px; font-weight: bold; margin-bottom: 12px;">This channel is not in your whitelist</div>
+        <div style="font-size: 16px; opacity: 0.9;">${escapeHtml(channelName)}</div>
+        <div style="font-size: 14px; margin-top: 24px; opacity: 0.7;">You cannot watch this video.</div>
+      </div>
+    `;
+    
+    document.body.appendChild(overlay);
+  }
+  
+  function removeWatchPageBlock() {
+    const overlay = document.getElementById('extension-watch-block-overlay');
+    if (overlay) overlay.remove();
+  }
+  
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
   
   // Show a message that the channel is blocked
@@ -156,7 +299,7 @@
     `;
     messageDiv.innerHTML = `
       <div style="font-size: 32px; margin-bottom: 10px;">🚫</div>
-      <div style="font-weight: bold; margin-bottom: 5px;">This YouTube channel is blocked</div>
+      <div style="font-weight: bold; margin-bottom: 5px;">This channel is not in your whitelist</div>
       <div style="font-size: 14px; opacity: 0.9;">${channelName}</div>
     `;
     
@@ -184,7 +327,7 @@
     `;
     blockedDiv.innerHTML = `
       <div style="font-size: 24px; margin-bottom: 5px;">🚫</div>
-      <div style="font-weight: bold;">Video from blocked channel</div>
+      <div style="font-weight: bold;">Channel not in whitelist</div>
       <div style="font-size: 12px; margin-top: 5px;">${channelName}</div>
     `;
     
@@ -199,21 +342,30 @@
     observer.timeout = setTimeout(processVideos, 300);
   });
   
+  // Run processVideos when whitelist is enabled, with retries to catch late-rendered content (YouTube SPA)
+  function scheduleProcessing() {
+    if (!youtubeChannelWhitelistEnabled) return;
+    processVideos();
+    const delays = [100, 500, 1000, 2000, 4000];
+    delays.forEach((ms, i) => {
+      setTimeout(() => {
+        if (youtubeChannelWhitelistEnabled) processVideos();
+      }, ms);
+    });
+  }
+
   // Start observing when page is ready
   function init() {
-    loadBlockedChannels();
+    loadWhitelistedChannels();
     
-    // Observe the main content area for new videos
-    const targetNode = document.querySelector('ytd-app');
-    if (targetNode) {
-      observer.observe(targetNode, {
-        childList: true,
-        subtree: true
-      });
-    }
+    // Observe a node that exists so we catch dynamically loaded videos (YouTube is a SPA)
+    const targetNode = document.querySelector('ytd-app') || document.body;
+    observer.observe(targetNode, {
+      childList: true,
+      subtree: true
+    });
     
-    // Initial processing
-    processVideos();
+    // Do NOT run processVideos() here: state is not loaded yet. It runs from loadWhitelistedChannels() callback and from observer.
   }
   
   // Wait for YouTube to be ready
@@ -223,5 +375,5 @@
     init();
   }
   
-  console.log('YouTube channel blocker content script loaded');
+  console.log('YouTube channel whitelist content script loaded');
 })();
