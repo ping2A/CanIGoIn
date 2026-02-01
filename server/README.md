@@ -43,7 +43,13 @@ cargo run --release -- --mode simple --port 3000
 
 **That's it!** Server runs on `http://127.0.0.1:8080`
 
-**Live dashboard:** Open `http://127.0.0.1:8080/` (or `http://127.0.0.1:8080/dashboard`) to view clients, packets (with packet_id), inspect each packet, and manage blocklist/whitelists.
+**Web dashboard:** Open `http://127.0.0.1:8080/` or `http://127.0.0.1:8080/dashboard` for:
+- **Events** – All / Security / JavaScript tabs with search, date range, filters, pagination, column sorting
+- **Network logs** – Request logs with client_id, search, export CSV
+- **Clients** – Unique client IDs (click to copy)
+- **Blocklist** – URL patterns and YouTube channels
+- **Inspect** – Click any event to view full JSON (syntax highlighting, copy, search)
+- Light/dark theme, auto-refresh toggle, connection status
 
 ### Production Mode
 
@@ -92,6 +98,26 @@ Options:
 ---
 
 ## 🌐 API Endpoints
+
+### Web Dashboard
+```bash
+GET /
+GET /dashboard
+GET /logo.png
+```
+Serves the dashboard HTML and logo. Dashboard features: search by client_id/time/url, date range filters, pagination (50 rows), column sorting, tab badges, export CSV, packet inspection with JSON copy/search, resizable panels, blocklist confirmation.
+
+### Dashboard API (Simple Mode)
+```bash
+GET /api/dashboard/events?filter=all|security|javascript
+# Returns events with packet_id, event_type, category, page_domain, script_domain, client_id, timestamp, risk_score
+
+GET /api/dashboard/events/{packet_id}
+# Returns full event JSON for inspection
+
+GET /api/dashboard/clients
+# Returns { "clients": ["uuid1", "uuid2", ...] }
+```
 
 ### Health Check
 ```bash
@@ -222,15 +248,20 @@ Same JSON shape as `/api/extensions`; **client_id** is stored in production. The
 
 ## 📦 Request / Response Summary
 
-| Endpoint           | Method | Gzip | client_id | Purpose                    |
-|--------------------|--------|------|-----------|----------------------------|
-| `/health`          | GET    | —    | —         | Health check               |
-| `/api/logs`        | POST   | ✅   | ✅        | Batch network logs         |
-| `/api/logs`        | GET    | —    | —         | Get logs (simple only)     |
-| `/api/blocklist`    | GET    | —    | —         | Get blocklist              |
-| `/api/blocklist`    | POST   | —    | —         | Update blocklist           |
-| `/api/extensions`  | POST   | ✅   | ✅        | Extension lifecycle events |
-| `/api/security`    | POST   | ✅   | ✅        | Security events (clickfix, etc.) |
+| Endpoint                        | Method | Gzip | client_id | Purpose                    |
+|---------------------------------|--------|------|-----------|----------------------------|
+| `/` / `/dashboard`              | GET    | —    | —         | Web dashboard              |
+| `/logo.png`                     | GET    | —    | —         | CanIGoIn logo              |
+| `/health`                       | GET    | —    | —         | Health check               |
+| `/api/logs`                     | POST   | ✅   | ✅        | Batch network logs         |
+| `/api/logs`                     | GET    | —    | —         | Get logs (simple only)     |
+| `/api/dashboard/events`         | GET    | —    | —         | Events for dashboard       |
+| `/api/dashboard/events/{id}`    | GET    | —    | —         | Inspect single event       |
+| `/api/dashboard/clients`        | GET    | —    | —         | Unique client IDs          |
+| `/api/blocklist`                | GET    | —    | —         | Get blocklist              |
+| `/api/blocklist`                | POST   | —    | —         | Update blocklist           |
+| `/api/extensions`               | POST   | ✅   | ✅        | Extension lifecycle events |
+| `/api/security`                 | POST   | ✅   | ✅        | Security events (clickfix, etc.) |
 
 ---
 
@@ -395,6 +426,23 @@ cargo run -- --port 3000
 
 ---
 
+## 📂 Server Structure
+
+```
+server/
+├── src/
+│   ├── main.rs           # CLI, routing
+│   ├── handlers/         # Dashboard, logs, blocklist, extensions
+│   ├── packet_id.rs      # Unique packet ID generation
+│   ├── simple.rs         # In-memory state
+│   ├── production.rs     # DB state (feature-gated)
+│   └── types.rs          # Shared data structures
+├── static/
+│   ├── dashboard.html    # Embedded dashboard UI
+│   └── logo.png          # CanIGoIn logo
+└── schema.sql
+```
+
 ## ✅ Summary
 
 | Feature           | Simple | Production |
@@ -402,6 +450,8 @@ cargo run -- --port 3000
 | Database          | In-memory | PostgreSQL |
 | Storage           | Last 1000 logs | Unlimited |
 | client_id         | Accepted, not persisted | Stored in logs & extension_events |
+| Dashboard         | ✅ Full UI | ✅ Full UI |
+| packet_id         | ✅ Unique per event | ✅ Unique per event |
 | Gzip              | ✅ Decompress on POST | ✅ Decompress on POST |
 | /api/security     | ✅     | ✅         |
 | Setup             | Zero config | DB required |

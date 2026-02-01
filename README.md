@@ -5,35 +5,6 @@ Chrome extension with unified Rust server for network monitoring, clickfix detec
 
 ---
 
-## 📁 Project Structure
-
-```
-CanIGoIn/
-├── extension/          # Chrome Extension
-│   ├── manifest.json
-│   ├── background.js
-│   ├── content.js
-│   ├── youtube-blocker.js
-│   ├── extension-monitor.js
-│   ├── popup.html / popup.js
-│   └── ... (icons, etc.)
-├── server/             # Unified Rust Server
-│   ├── Cargo.toml
-│   ├── src/main.rs
-│   ├── schema.sql
-│   └── README.md
-├── examples/           # Test pages (clickfix, JS execution)
-│   ├── index.html
-│   ├── test-script.js
-│   └── README.md
-└── docs/                # Documentation
-    ├── README.md
-    ├── QUICKSTART.md
-    └── ... (all guides)
-```
-
----
-
 ## 🚀 Quick Start
 
 ### 1. Start Server (Simple Mode)
@@ -61,6 +32,10 @@ Server runs on `http://127.0.0.1:8080` with no setup required.
 
 **Done!** The extension sends logs and events to the server. Use **Client ID** (in Settings) to identify this browser across sessions.
 
+### 4. Open Dashboard (optional)
+
+Visit **http://127.0.0.1:8080/** or **http://127.0.0.1:8080/dashboard** to view the web dashboard with events, network logs, clients, and blocklist management.
+
 ---
 
 ## ✨ Features
@@ -87,7 +62,7 @@ Server runs on `http://127.0.0.1:8080` with no setup required.
 - **Empty whitelist** – If whitelist is enabled but empty, all YouTube content is hidden/blocked.
 
 **Security**  
-- **Clickfix detection** – Detects suspicious copy-paste (PowerShell, base64, etc.) and sends events to `POST /api/security`.
+- **Clickfix detection** – Detects suspicious copy-paste and clipboard writes. Covers PowerShell, CMD (`cmd /c`), VBScript (CreateObject WinHttp, Execute), mshta, certutil, wscript, and other Windows abuse patterns. Sends events to `POST /api/security`. Deduplicated (15s TTL) to avoid duplicate alerts.
 - **ChatGPT file upload** – When enabled, detects file uploads to ChatGPT (`chatgpt.com/backend-api/files`) and sends `chatgpt_file_upload` to `POST /api/security` (filename and payload captured when possible).
 - **Extension security scan** – Optional; results sent to `/api/security`.
 
@@ -98,16 +73,28 @@ Server runs on `http://127.0.0.1:8080` with no setup required.
 - **Production** – PostgreSQL (and optional Redis), unlimited storage, `client_id` stored with logs and extension events.
 
 **Endpoints**  
+- `GET /` / `GET /dashboard` – Web dashboard (events, logs, clients, blocklist).
+- `GET /logo.png` – CanIGoIn logo.
 - `GET /health` – Health check.
 - `POST /api/logs` – Batch network logs (optional gzip, optional `client_id`).
 - `GET /api/logs` – Get logs (simple mode only).
 - `GET /api/blocklist` / `POST /api/blocklist` – URL and YouTube blocklist.
+- `GET /api/dashboard/events` – Events for dashboard (filter: all | security | javascript).
+- `GET /api/dashboard/events/{packet_id}` – Inspect single event.
+- `GET /api/dashboard/clients` – Unique client IDs.
 - `POST /api/extensions` – Extension lifecycle/monitoring events (optional gzip, `client_id`).
 - `POST /api/security` – Security events (clickfix, extension security scan); same JSON shape as extensions, optional gzip and `client_id`.
 
 **Behavior**  
 - **Gzip** – All POST bodies that send JSON accept `Content-Encoding: gzip`; on decompress error the server falls back to plain UTF-8 (no 400).
 - **client_id** – Stored in production for logs and extension_events; used for correlation and analytics.
+- **packet_id** – All events receive a unique packet ID; clickfix events include `risk_score` for dashboard display.
+
+**Dashboard**  
+- Tabs: All events, Security, JavaScript, Network logs, Clients, Blocklist.
+- Search, date range, filters, pagination, column sorting.
+- Packet inspection with JSON syntax highlighting, copy, search.
+- Export to CSV, auto-refresh toggle, connection status.
 
 See **`server/README.md`** for full API and schema.
 
@@ -386,15 +373,20 @@ The content script observes the DOM for `<script src="...">` elements (via Mutat
 
 ## 📊 API Summary
 
-| Endpoint           | Method | Purpose                    |
-|--------------------|--------|----------------------------|
-| `/health`          | GET    | Health check               |
-| `/api/logs`        | POST   | Batch network logs (gzip, client_id) |
-| `/api/logs`        | GET    | Get logs (simple mode)     |
-| `/api/blocklist`   | GET    | Get blocklist              |
-| `/api/blocklist`   | POST   | Update blocklist           |
-| `/api/extensions`  | POST   | Extension events (gzip, client_id) |
-| `/api/security`    | POST   | Security events (gzip, client_id) |
+| Endpoint                        | Method | Purpose                    |
+|---------------------------------|--------|----------------------------|
+| `/` / `/dashboard`              | GET    | Web dashboard              |
+| `/logo.png`                     | GET    | CanIGoIn logo              |
+| `/health`                       | GET    | Health check               |
+| `/api/logs`                     | POST   | Batch network logs (gzip, client_id) |
+| `/api/logs`                     | GET    | Get logs (simple mode)     |
+| `/api/blocklist`                | GET    | Get blocklist              |
+| `/api/blocklist`                | POST   | Update blocklist           |
+| `/api/dashboard/events`         | GET    | Events (filter: all\|security\|javascript) |
+| `/api/dashboard/events/{id}`    | GET    | Inspect single event       |
+| `/api/dashboard/clients`        | GET    | Unique client IDs          |
+| `/api/extensions`               | POST   | Extension events (gzip, client_id) |
+| `/api/security`                 | POST   | Security events (gzip, client_id) |
 
 ---
 
@@ -433,8 +425,8 @@ More: **`server/README.md`**, **`docs/README.md`**.
 
 | Component   | What you get |
 |------------|----------------|
-| **Extension** | Feature toggles, Client ID, gzip, YouTube whitelist (feeds + watch + channel pages), clickfix → `/api/security`, extension events → `/api/extensions` |
-| **Server**    | Simple + Production modes, `/api/logs`, `/api/extensions`, `/api/security`, gzip decompression, `client_id` storage in production |
+| **Extension** | Feature toggles, Client ID, gzip, YouTube whitelist, clickfix (PowerShell/CMD/VBScript/mshta/certutil), deduplication, ES module script detection → `/api/security` & `/api/extensions` |
+| **Server**    | Simple + Production modes, web dashboard, `/api/logs`, `/api/dashboard/*`, gzip decompression, unique packet IDs, `risk_score` for clickfix |
 | **Docs**      | READMEs, API docs, examples, troubleshooting |
 
 ---

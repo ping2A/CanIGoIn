@@ -1,214 +1,93 @@
-# 🛡️ Network Logger Chrome Extension
+# 🛡️ CanIGoIn – Chrome Extension
 
-Enterprise-grade network monitoring and blocking extension.
+Network monitoring, clickfix detection, YouTube channel whitelisting, and extension tracking.
 
 ---
 
 ## 🚀 Quick Install
 
-```bash
-# 1. Open Chrome
-chrome://extensions/
-
-# 2. Enable Developer Mode (top right)
-
-# 3. Click "Load unpacked"
-
-# 4. Select this folder
-
-# 5. Done!
-```
+1. Open **Chrome** → `chrome://extensions/`
+2. Enable **Developer mode** (top right)
+3. Click **Load unpacked**
+4. Select the `extension` folder
+5. Done!
 
 ---
 
 ## ⚙️ Configuration
 
-```
-1. Click extension icon
-2. Settings Tab
-3. Enter server URLs:
-   - Log Server: http://localhost:8080/api/logs
-   - Blocklist Server: http://localhost:8080/api/blocklist
-4. Save
-```
+1. Click the extension icon → **Settings**
+2. **Server URL**: `http://localhost:8080/api/logs` (default)
+3. **Features** (toggle as needed):
+   - **Report URLs** – Send network logs to server (off by default)
+   - **JS execution** – Report external script loads (on by default)
+   - **Clickfix** – Detect clipboard/copy-based social engineering (on by default)
+   - **Extension monitoring** – Track extension installs (off by default)
+   - **ChatGPT file upload** – Report file uploads to ChatGPT (off by default)
+4. **Client ID** – Persistent identifier; copy or generate new
+5. **Save**
 
 ---
 
-## ✨ Editions
+## ✨ Features
 
-### Basic Edition (Default)
-Files already configured. Just load and use!
+### Core
+- **Network logging** – Batch network requests to server (optional gzip)
+- **Client ID** – Persistent browser identifier for correlation
+- **Blocklist** – URL patterns and YouTube channel blocklist from server
+- **Compression** – gzip for batch sends (reduces payload size)
+- **Timeout** – 5s request timeout when server is unavailable
 
-### Enhanced Edition (Recommended)
-```bash
-cp manifest-enhanced.json manifest.json
-cp background-enhanced.js background.js
-cp popup-enhanced.html popup.html
-cp popup-enhanced.js popup.js
-```
+### Clickfix Detection
+- Detects suspicious copy-paste and programmatic clipboard writes
+- **PowerShell** – `-ExecutionPolicy Bypass`, `-EncodedCommand`, `iex`, `Invoke-WebRequest`, etc.
+- **Windows executables** – `cmd /c`, `mshta`, `wscript`, `certutil`, `regasm`, `msbuild`, `rundll32`, etc.
+- **VBScript** – `CreateObject("WinHttp.WinHttpRequest")`, `Execute`, download chains
+- **Deduplication** – 15s TTL to avoid duplicate alerts
+- Events sent to `POST /api/security`
 
-**Reload extension** in chrome://extensions/
+### JavaScript Execution
+- Reports external script loads (`<script src="...">`) including ES modules
+- `webRequest` catches script-type loads; content script observes DOM
+- Events sent to `POST /api/extensions` as `javascript_execution`
+
+### YouTube Channel Whitelist
+- Whitelist mode – only listed channels allowed
+- Applies to feeds, search, channel pages, and direct watch links
+- Handles `@handle`, `/channel/ID`, `/user/name`
 
 ### Extension Monitoring
-```bash
-cp manifest-with-extensions.json manifest.json
-cp background-with-extensions.js background.js
-cp popup-with-extensions.html popup.html
-cp popup-with-extensions.js popup.js
-```
-
-### Server-Side Blocklist (Most Secure)
-```bash
-cp background-server-blocklist.js background.js
-cp popup-server-blocklist.html popup.html
-cp popup-server-blocklist.js popup.js
-```
+- Track install/uninstall/update of Chrome extensions
+- Optional security scan with risk scoring
 
 ---
 
-## 📋 Features
+## 📋 Files
 
-### All Editions
-- ✅ Network request logging
-- ✅ URL pattern blocking
-- ✅ YouTube channel blocking
-- ✅ Statistics dashboard
-
-### Enhanced Edition Adds
-- ✅ Retry logic
-- ✅ Local backup
-- ✅ Buffer overflow protection
-- ✅ Data sanitization
-- ✅ Export/import
-- ✅ Resource timing
-
-### Extension Monitoring Adds
-- ✅ Track all Chrome extensions
-- ✅ Detect suspicious extensions
-- ✅ Risk scoring (0-100)
-- ✅ Change history
-
-### Server-Side Blocklist
-- ✅ 100% server-managed
-- ✅ Cannot be bypassed
-- ✅ Auto-updates every 5 min
-- ✅ Read-only display
+| File | Purpose |
+|------|---------|
+| `manifest.json` | Extension manifest |
+| `background.js` | Service worker – batching, compression, routing |
+| `content.js` | DOM observation, clickfix detection, script tracking |
+| `popup.html` / `popup.js` | Settings UI |
+| `youtube-blocker.js` | YouTube channel whitelist |
+| `extension-monitor.js` | Extension tracking |
+| `page-context-clipboard.js` | Injected script for programmatic clipboard detection |
+| `chatgpt-fetch-intercept.js` | ChatGPT file upload detection |
 
 ---
 
-## 📊 Files
+## 🐛 Troubleshooting
 
-**Core Files** (all editions):
-- `manifest.json` - Extension manifest
-- `background.js` - Service worker
-- `popup.html` - Popup interface
-- `popup.js` - Popup logic
-- `content.js` - Content script
-- `youtube-blocker.js` - YouTube blocking
-
-**Enhanced Edition**:
-- `manifest-enhanced.json`
-- `background-enhanced.js`
-- `popup-enhanced.html`
-- `popup-enhanced.js`
-
-**Extension Monitoring**:
-- `manifest-with-extensions.json`
-- `background-with-extensions.js`
-- `popup-with-extensions.html`
-- `popup-with-extensions.js`
-- `extension-monitor.js`
-
-**Server-Side Blocklist**:
-- `background-server-blocklist.js`
-- `popup-server-blocklist.html`
-- `popup-server-blocklist.js`
-
-**Assets**:
-- `icon16.png`, `icon48.png`, `icon128.png`
-
-**Scripts**:
-- `analyze_logs.py` - Log analysis
-- `analyze_youtube_blocks.py` - YouTube analytics
-
----
-
-## 🎯 Usage
-
-### View Statistics
-```
-Click icon → Statistics Tab
-Shows: requests, blocked, logged, uploads
-```
-
-### Block URLs
-```
-1. Blocking Tab (or Settings → Blocklist URL)
-2. Enter patterns (one per line):
-   .*tracker\..*
-   .*analytics\..*
-3. Save (or configure on server)
-```
-
-### Block YouTube Channels
-```
-1. YouTube Tab
-2. Enter channels (one per line):
-   @channelhandle
-   UCxxxxxxxxxxxxxxxxxx
-3. Save (or configure on server)
-```
-
-### Monitor Extensions
-```
-1. Extensions Tab (monitoring edition only)
-2. View all installed extensions
-3. Check suspicious count
-4. Export report
-```
-
----
-
-## 🔧 Troubleshooting
-
-### Extension not loading
-- Check manifest.json is present
-- Ensure Chrome is up to date
-- Check console for errors
-
-### No logs appearing
-- Verify server is running
-- Check server URL in settings
-- Look at service worker console
-
-### Blocking not working
-- Enable blocking toggle
-- Check pattern syntax (regex)
-- Verify server-side blocklist loaded
+- **No logs / events** – Verify server URL, enable features (Settings → Features)
+- **Extension slow when server down** – Turn off "Report URLs" if not needed; requests timeout after 5s
+- **Clickfix not firing** – Ensure "Clickfix" is enabled; tests require HTTP (not `file://`) for programmatic clipboard
+- **Service worker suspended** – Critical events (script, page_summary) are sent immediately to avoid loss
 
 ---
 
 ## 📚 Documentation
 
-Full documentation in `../docs/`:
-- `README.md` - Complete guide
-- `ENHANCEMENTS.md` - Feature details
-- `EXTENSION_MONITORING.md` - Extension tracking
-- `SERVER_BLOCKLIST_GUIDE.md` - Blocklist management
-
----
-
-## ✅ Summary
-
-| Edition | Files to Copy | Features |
-|---------|--------------|----------|
-| Basic | None (default) | Logging + blocking |
-| Enhanced | 4 files | + Retry, backup, stats |
-| Monitoring | 5 files | + Extension tracking |
-| Server-Blocklist | 3 files | + Server-managed |
-
----
-
-**Choose your edition, load in Chrome, and start monitoring!** 🚀
-
-For detailed instructions, see `../docs/README.md`
+- **Main**: `../README.md`
+- **Server**: `../server/README.md`
+- **Test page**: `../examples/README.md`
