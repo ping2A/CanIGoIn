@@ -11,136 +11,189 @@
   </script>
   <style>
     * { box-sizing: border-box; }
-
     :root {
-      --bg: #0f172a;
-      --bg-elevated: #1e293b;
-      --bg-hover: #334155;
-      --bg-active: #475569;
-      --text: #e2e8f0;
-      --text-muted: #94a3b8;
-      --text-bright: #f8fafc;
-      --border: #334155;
-      --link: #38bdf8;
-      --primary: #2563eb;
-      --primary-hover: #1d4ed8;
-      --error: #f87171;
-      --live: #22c55e;
+      --bg: #0d0d0f; --bg-elevated: #161618; --bg-hover: #1e1e22; --bg-active: #26262b;
+      --text: #a1a1aa; --text-muted: #71717a; --text-bright: #fafafa;
+      --border: rgba(255,255,255,0.06); --border-strong: rgba(255,255,255,0.1);
+      --link: #7dd3fc; --primary: #3b82f6; --primary-hover: #60a5fa;
+      --error: #f87171; --live: #34d399;
+      --badge-security: #f87171; --badge-js: #60a5fa; --badge-general: #71717a;
     }
-
     [data-theme="light"] {
-      --bg: #f8fafc;
-      --bg-elevated: #f1f5f9;
-      --bg-hover: #e2e8f0;
-      --bg-active: #cbd5e1;
-      --text: #1e293b;
-      --text-muted: #64748b;
-      --text-bright: #0f172a;
-      --border: #cbd5e1;
-      --link: #0284c7;
-      --primary: #2563eb;
-      --primary-hover: #1d4ed8;
-      --error: #dc2626;
-      --live: #16a34a;
+      --bg: #fafafa; --bg-elevated: #fff; --bg-hover: #f4f4f5; --bg-active: #e4e4e7;
+      --text: #52525b; --text-muted: #a1a1aa; --text-bright: #18181b;
+      --border: rgba(0,0,0,0.06); --border-strong: rgba(0,0,0,0.1);
+      --link: #0ea5e9; --primary: #3b82f6; --primary-hover: #2563eb;
+      --error: #ef4444; --live: #22c55e;
+      --badge-security: #ef4444; --badge-js: #3b82f6; --badge-general: #a1a1aa;
     }
-
-    body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 0; padding: 16px; background: var(--bg); color: var(--text); }
-    h1 { font-size: 1.5rem; margin: 0 0 16px; color: var(--text-bright); }
-    h2 { font-size: 1.1rem; margin: 20px 0 8px; color: var(--text-muted); }
-    a { color: var(--link); }
-    .header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
-    .header h1 { margin: 0; }
-    .theme-toggle { padding: 6px 12px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text); border-radius: 6px; cursor: pointer; font-size: 13px; }
-    .theme-toggle:hover { background: var(--bg-hover); }
-    .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
-    .tabs button { padding: 8px 16px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text); border-radius: 6px; cursor: pointer; }
-    .tabs button.active { background: var(--bg-hover); }
-    .tabs button:hover { background: var(--bg-active); }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; margin: 0; padding: 24px 32px; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }
+    h1 { font-size: 1.25rem; font-weight: 600; margin: 0; color: var(--text-bright); letter-spacing: -0.02em; display: flex; align-items: center; gap: 12px; }
+    .logo { height: 32px; width: auto; display: block; }
+    h2 { font-size: 0.875rem; font-weight: 500; margin: 0 0 12px; color: var(--text-muted); }
+    a { color: var(--link); text-decoration: none; }
+    .header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 24px; }
+    .header-actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 13px; }
+    .status-bar { color: var(--text-muted); font-weight: 400; }
+    .connection-error { background: rgba(248,113,113,0.15); color: var(--error); padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; display: none; font-size: 13px; }
+    .connection-error.visible { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .theme-toggle, .btn { padding: 6px 12px; background: transparent; border: none; color: var(--text-muted); border-radius: 6px; cursor: pointer; font-size: 13px; transition: color .15s, background .15s; }
+    .theme-toggle:hover, .btn:hover { color: var(--text); background: var(--bg-hover); }
+    .tabs { display: flex; gap: 2px; margin-bottom: 20px; flex-wrap: wrap; }
+    .tabs button { padding: 8px 14px; background: none; border: none; color: var(--text-muted); border-radius: 6px; cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 6px; transition: color .15s, background .15s; }
+    .tabs button:hover { color: var(--text); background: var(--bg-hover); }
+    .tabs button.active { color: var(--text-bright); background: var(--bg-elevated); }
+    .tab-badge { color: var(--text-muted); font-size: 11px; font-weight: 400; }
+    .tabs button.active .tab-badge { color: var(--primary); }
     .panel { display: none; }
     .panel.active { display: block; }
+    .table-wrap { overflow-x: auto; border-radius: 8px; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
-    th { background: var(--bg-elevated); color: var(--text-muted); }
-    tr:hover { background: var(--bg-elevated); }
-    .mono { font-family: ui-monospace, monospace; font-size: 12px; }
+    thead th { position: sticky; top: 0; background: var(--bg); z-index: 1; cursor: pointer; user-select: none; font-weight: 500; }
+    th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+    th.sort-asc::after { content: ' ↑'; opacity: 0.6; }
+    th.sort-desc::after { content: ' ↓'; opacity: 0.6; }
+    tbody tr { transition: background .1s; }
+    tbody tr:hover { background: var(--bg-hover); }
+    tbody tr.blocked { background: rgba(248,113,113,0.08); }
+    .mono { font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace; font-size: 12px; }
     .packet-row { cursor: pointer; }
-    pre { background: var(--bg-elevated); padding: 12px; border-radius: 6px; overflow: auto; font-size: 12px; white-space: pre-wrap; }
-    .events-layout { display: flex; gap: 16px; align-items: flex-start; min-height: 300px; }
-    .events-table { flex: 1; min-width: 0; }
-    .inspect { width: 520px; flex-shrink: 0; position: sticky; top: 16px; border: 1px solid var(--border); border-radius: 6px; padding: 16px; background: var(--bg-elevated); max-height: calc(100vh - 100px); display: flex; flex-direction: column; }
-    .inspect h2 { margin: 0 0 12px; }
-    .inspect pre { flex: 1; min-height: 0; max-height: 70vh; font-size: 13px; line-height: 1.5; margin: 0; background: transparent; }
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 500; }
+    .badge-security { background: rgba(248,113,113,0.2); color: var(--badge-security); }
+    .badge-javascript { background: rgba(96,165,250,0.2); color: var(--badge-js); }
+    .badge-general { background: rgba(113,113,122,0.2); color: var(--badge-general); }
+    .risk-bar { width: 40px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; display: inline-block; vertical-align: middle; margin-left: 6px; }
+    .risk-bar span { display: block; height: 100%; background: var(--primary); border-radius: 2px; }
+    pre { background: var(--bg-elevated); padding: 16px; border-radius: 8px; overflow: auto; font-size: 12px; white-space: pre-wrap; border: 1px solid var(--border); }
+    .events-layout { display: flex; gap: 0; align-items: stretch; min-height: 300px; }
+    .events-table-wrap { flex: 1; min-width: 200px; overflow: hidden; }
+    .splitter { width: 1px; background: var(--border); cursor: col-resize; flex-shrink: 0; }
+    .splitter:hover { background: var(--primary); width: 2px; }
+    .inspect { width: 420px; min-width: 280px; max-width: 50vw; flex-shrink: 0; position: sticky; top: 24px; border-radius: 8px; padding: 20px; background: var(--bg-elevated); border: 1px solid var(--border); max-height: calc(100vh - 120px); display: flex; flex-direction: column; }
+    .inspect h2 { margin: 0 0 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .inspect-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+    .inspect pre { flex: 1; min-height: 0; max-height: 55vh; font-size: 12px; line-height: 1.6; margin: 0; background: transparent; border: none; padding: 0; }
     .inspect pre.hljs { padding: 0; }
+    .inspect-search { margin-bottom: 10px; }
+    .inspect-search input { width: 100%; padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 13px; }
     .clients-list { list-style: none; padding: 0; margin: 0; }
-    .clients-list li { padding: 8px 12px; border-bottom: 1px solid var(--border); font-family: ui-monospace, monospace; font-size: 13px; }
-    .blocklist-section { margin-bottom: 20px; }
-    .blocklist-section label { display: block; margin-bottom: 4px; color: var(--text-muted); }
-    textarea { width: 100%; min-height: 100px; padding: 8px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: ui-monospace, monospace; font-size: 12px; }
-    button.primary { padding: 8px 16px; background: var(--primary); border: none; border-radius: 6px; color: white; cursor: pointer; }
+    .clients-list li { padding: 10px 14px; border-bottom: 1px solid var(--border); font-family: monospace; font-size: 13px; cursor: pointer; transition: background .1s; }
+    .clients-list li:hover { background: var(--bg-hover); }
+    .blocklist-section { margin-bottom: 24px; }
+    .blocklist-section label { display: block; margin-bottom: 6px; color: var(--text-muted); font-size: 12px; }
+    textarea { width: 100%; min-height: 100px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: monospace; font-size: 12px; }
+    button.primary { padding: 8px 16px; background: var(--primary); border: none; border-radius: 6px; color: white; cursor: pointer; font-size: 13px; font-weight: 500; transition: background .15s; }
     button.primary:hover { background: var(--primary-hover); }
-    .refresh { margin-bottom: 12px; }
-    .search-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
-    .search-bar input { padding: 6px 10px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 13px; min-width: 200px; }
-    .search-bar input::placeholder { color: var(--text-muted); }
+    .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+    .search-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .search-bar input, .search-bar select { padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 13px; }
+    .search-bar input { min-width: 140px; }
     .search-bar span { color: var(--text-muted); font-size: 12px; }
+    .pagination { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-top: 12px; }
+    .pagination button { padding: 6px 10px; }
+    .pagination span { color: var(--text-muted); }
+    .skeleton { background: linear-gradient(90deg, var(--bg-elevated) 25%, var(--bg-hover) 50%, var(--bg-elevated) 75%); background-size: 200% 100%; animation: skeleton 1.5s ease-in-out infinite; border-radius: 4px; height: 18px; }
+    @keyframes skeleton { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
     .error { color: var(--error); }
-    .live { display: inline-block; width: 8px; height: 8px; background: var(--live); border-radius: 50%; margin-right: 8px; animation: pulse 2s infinite; }
-    @keyframes pulse { 50% { opacity: 0.6; } }
+    .live { display: inline-block; width: 6px; height: 6px; background: var(--live); border-radius: 50%; margin-right: 10px; animation: pulse 2s infinite; vertical-align: middle; }
+    .live.offline { background: var(--error); }
+    @keyframes pulse { 50% { opacity: 0.5; } }
+    .back-link { color: var(--text-muted); cursor: pointer; font-size: 13px; transition: color .15s; }
+    .back-link:hover { color: var(--link); }
+    label { cursor: pointer; }
   </style>
 </head>
 <body>
+  <div class="connection-error" id="connection-error">
+    <span>Connection lost. Check if the server is running.</span>
+    <button type="button" class="btn" onclick="retryConnection()">Retry</button>
+  </div>
   <div class="header">
-    <h1><span class="live"></span>CanIGoIn Dashboard</h1>
-    <button type="button" class="theme-toggle" id="theme-toggle" title="Toggle theme">Dark</button>
+    <h1>
+      <img src="/logo.png" alt="CanIGoIn" class="logo">
+      <span class="live" id="live-dot" title="Server status"></span>CanIGoIn Dashboard
+    </h1>
+    <div class="header-actions">
+      <span class="status-bar" id="status-bar">—</span>
+      <label><input type="checkbox" id="auto-refresh" checked> Auto-refresh</label>
+      <button type="button" class="theme-toggle" id="theme-toggle" title="Toggle theme">Dark</button>
+    </div>
   </div>
   <div class="tabs">
-    <button type="button" data-tab="events">All events</button>
-    <button type="button" data-tab="security">Security</button>
-    <button type="button" data-tab="javascript">JavaScript</button>
-    <button type="button" data-tab="logs">Network logs</button>
-    <button type="button" data-tab="clients">Clients</button>
-    <button type="button" data-tab="blocklist">Blocklist / Whitelists</button>
+    <button type="button" data-tab="events">All events <span class="tab-badge" id="badge-events">0</span></button>
+    <button type="button" data-tab="security">Security <span class="tab-badge" id="badge-security">0</span></button>
+    <button type="button" data-tab="javascript">JavaScript <span class="tab-badge" id="badge-javascript">0</span></button>
+    <button type="button" data-tab="logs">Network logs <span class="tab-badge" id="badge-logs">0</span></button>
+    <button type="button" data-tab="clients">Clients <span class="tab-badge" id="badge-clients">0</span></button>
+    <button type="button" data-tab="blocklist">Blocklist</button>
   </div>
 
   <div id="panel-logs" class="panel">
-    <h2>Network logs (newest first)</h2>
-    <div class="search-bar" id="logs-search-bar">
-      <input type="text" id="logs-search" placeholder="Search by client_id, time, url..." oninput="applyLogsSearch()">
-      <span id="logs-search-hint"></span>
+    <h2>Network logs</h2>
+    <div class="toolbar">
+      <div class="search-bar">
+        <input type="text" id="logs-search" placeholder="Search...">
+        <input type="date" id="logs-date-from" title="From date">
+        <input type="date" id="logs-date-to" title="To date">
+        <select id="logs-type-filter"><option value="">All types</option></select>
+        <span id="logs-search-hint"></span>
+      </div>
+      <button type="button" class="primary" onclick="loadLogs()">Refresh</button>
+      <button type="button" class="btn" onclick="exportLogs()">Export CSV</button>
     </div>
-    <div class="refresh"><button type="button" class="primary" onclick="loadLogs()">Refresh</button></div>
-    <table>
-      <thead>
-        <tr><th>timestamp</th><th>type</th><th>url</th><th>method</th><th>blocked</th><th>client_id</th><th>session_id</th></tr>
-      </thead>
-      <tbody id="logs-tbody"></tbody>
-    </table>
+    <div class="table-wrap">
+      <table>
+        <thead><tr id="logs-thead"></tr></thead>
+        <tbody id="logs-tbody"></tbody>
+      </table>
+    </div>
+    <div class="pagination" id="logs-pagination"></div>
   </div>
 
   <div id="panel-clients" class="panel">
     <h2>Clients</h2>
-    <div class="refresh"><button type="button" class="primary" onclick="loadClients()">Refresh</button></div>
+    <div class="toolbar">
+      <input type="text" id="clients-search" placeholder="Filter clients...">
+      <button type="button" class="primary" onclick="loadClients()">Refresh</button>
+    </div>
     <ul id="clients-list" class="clients-list"></ul>
   </div>
 
   <div id="panel-events" class="panel active">
-    <h2 id="events-title">All events (newest first)</h2>
-    <div class="search-bar" id="events-search-bar">
-      <input type="text" id="events-search" placeholder="Search by client_id, time, url..." oninput="applyEventsSearch()">
-      <span id="events-search-hint"></span>
-    </div>
-    <div class="refresh"><button type="button" class="primary" onclick="loadEvents()">Refresh</button></div>
-    <div class="events-layout">
-      <div class="events-table">
-        <table>
-          <thead>
-            <tr><th>packet_id</th><th>event_type</th><th>category</th><th>page</th><th>script</th><th>client_id</th><th>timestamp</th></tr>
-          </thead>
-          <tbody id="events-tbody"></tbody>
-        </table>
+    <h2 id="events-title">All events</h2>
+    <div class="toolbar">
+      <div class="search-bar">
+        <input type="text" id="events-search" placeholder="Search...">
+        <input type="date" id="events-date-from" title="From date">
+        <input type="date" id="events-date-to" title="To date">
+        <select id="events-type-filter"><option value="">All types</option></select>
+        <span id="events-search-hint"></span>
       </div>
+      <button type="button" class="primary" onclick="loadEvents()">Refresh</button>
+      <button type="button" class="btn" onclick="exportEvents()">Export CSV</button>
+    </div>
+    <div class="events-layout">
+      <div class="events-table-wrap">
+        <div class="table-wrap">
+          <table>
+            <thead><tr id="events-thead"></tr></thead>
+            <tbody id="events-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="events-pagination"></div>
+      </div>
+      <div class="splitter" id="splitter"></div>
       <div id="inspect" class="inspect" style="display:none;">
-        <h2>Inspect packet</h2>
+        <h2>
+          <span class="back-link" onclick="closeInspect()">← Back</span>
+          <span>Inspect packet</span>
+        </h2>
+        <div class="inspect-actions">
+          <button type="button" class="btn" onclick="copyPacketId()">Copy ID</button>
+          <button type="button" class="btn" onclick="copyInspectJson()">Copy JSON</button>
+        </div>
+        <div class="inspect-search"><input type="text" id="inspect-search" placeholder="Search in JSON..."></div>
         <pre id="inspect-body" class="json-hl"></pre>
       </div>
     </div>
@@ -163,6 +216,78 @@
 
   <script>
     const API = '';
+    const PAGE_SIZE = 50;
+    const DEBOUNCE_MS = 300;
+    let eventsData = [], logsData = [], clientsData = [];
+    let eventsSort = { key: 'timestamp', dir: -1 };
+    let logsSort = { key: 'timestamp', dir: -1 };
+    let eventsPage = 1, logsPage = 1;
+    let lastUpdated = 0;
+    let refreshInterval = null;
+    let inspectPacketId = null;
+    let inspectRawJson = null;
+    let allEventsCache = [];
+    let tabCounts = { events: 0, security: 0, javascript: 0, logs: 0, clients: 0 };
+    const EVENT_TABS = ['events', 'security', 'javascript'];
+    let currentEventFilter = 'all';
+
+    function escapeHtml(s) {
+      if (s == null) return '';
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    function relativeTime(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      const now = Date.now();
+      const s = Math.round((now - d) / 1000);
+      if (s < 60) return s + 's ago';
+      if (s < 3600) return Math.floor(s / 60) + 'm ago';
+      if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+      if (s < 604800) return Math.floor(s / 86400) + 'd ago';
+      return d.toLocaleString();
+    }
+
+    function debounce(fn, ms) {
+      let t;
+      return function(...a) { clearTimeout(t); t = setTimeout(() => fn.apply(this, a), ms); };
+    }
+
+    function setConnectionStatus(ok) {
+      const dot = document.getElementById('live-dot');
+      const err = document.getElementById('connection-error');
+      dot.classList.toggle('offline', !ok);
+      dot.title = ok ? 'Connected' : 'Disconnected';
+      err.classList.toggle('visible', !ok);
+    }
+
+    async function checkHealth() {
+      try {
+        const r = await fetch(API + '/health', { signal: AbortSignal.timeout(3000) });
+        setConnectionStatus(r.ok);
+        return r.ok;
+      } catch (e) {
+        setConnectionStatus(false);
+        return false;
+      }
+    }
+
+    function retryConnection() {
+      checkHealth().then(ok => { if (ok) { loadEvents(); loadLogs(); loadClients(); } });
+    }
+
+    function updateStatusBar() {
+      const el = document.getElementById('status-bar');
+      if (lastUpdated) {
+        const ago = Math.round((Date.now() - lastUpdated) / 1000);
+        el.textContent = 'Updated ' + (ago < 60 ? ago + 's ago' : Math.floor(ago / 60) + 'm ago');
+      } else {
+        el.textContent = '—';
+      }
+    }
+
     (function initTheme() {
       const key = 'cigi-dashboard-theme';
       const toggle = document.getElementById('theme-toggle');
@@ -179,14 +304,35 @@
           : 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/atom-one-dark.min.css';
       }
       const saved = getSavedTheme();
-      const initial = saved || (prefersLight() ? 'light' : 'dark');
-      applyTheme(initial);
+      applyTheme(saved || (prefersLight() ? 'light' : 'dark'));
       toggle.addEventListener('click', () => applyTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light'));
     })();
-    let currentEventFilter = 'all';
-    const EVENT_TABS = ['events', 'security', 'javascript'];
-    let eventsData = [];
-    let logsData = [];
+
+    document.getElementById('auto-refresh').addEventListener('change', function() {
+      if (this.checked) {
+        refreshInterval = setInterval(refreshCurrent, 5000);
+      } else {
+        clearInterval(refreshInterval);
+        refreshInterval = null;
+      }
+    });
+
+    function refreshCurrent() {
+      const active = document.querySelector('.panel.active');
+      if (!active) return;
+      if (active.id === 'panel-events') loadEvents();
+      else if (active.id === 'panel-logs') loadLogs();
+      else if (active.id === 'panel-clients') loadClients();
+    }
+
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') closeInspect();
+    });
+
+    function closeInspect() {
+      document.getElementById('inspect').style.display = 'none';
+    }
+
     function tab(t) {
       document.getElementById('inspect').style.display = 'none';
       document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
@@ -196,7 +342,7 @@
       document.querySelector('.tabs button[data-tab="' + t + '"]').classList.add('active');
       if (EVENT_TABS.includes(t)) {
         currentEventFilter = t === 'events' ? 'all' : t;
-        const titles = { all: 'All events (newest first)', security: 'Security events (newest first)', javascript: 'JavaScript events (newest first)' };
+        const titles = { all: 'All events', security: 'Security events', javascript: 'JavaScript events' };
         document.getElementById('events-title').textContent = titles[currentEventFilter];
         loadEvents();
       } else if (t === 'logs') loadLogs();
@@ -205,35 +351,220 @@
     }
     document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => tab(b.dataset.tab)));
 
-    function matchesEventSearch(row, q) {
-      if (!q) return true;
-      const s = q.toLowerCase().trim();
-      const parts = (row.timestamp || '') + ' ' + (row.client_id || '') + ' ' + (row.page_domain || '') + ' ' + (row.script_domain || '') + ' ' + (row.event_type || '') + ' ' + (row.packet_id || '');
-      return parts.toLowerCase().includes(s);
+    function sortData(data, key, dir) {
+      const arr = [...data];
+      arr.sort((a, b) => {
+        let va = a[key], vb = b[key];
+        if (va == null) va = '';
+        if (vb == null) vb = '';
+        const cmp = String(va).localeCompare(String(vb), undefined, { numeric: true });
+        return dir > 0 ? cmp : -cmp;
+      });
+      return arr;
     }
-    function matchesLogSearch(row, q) {
-      if (!q) return true;
-      const s = q.toLowerCase().trim();
-      const parts = (row.timestamp || '') + ' ' + (row.session_id || '') + ' ' + (row.client_id || '') + ' ' + (row.url || '') + ' ' + (row.type || '');
-      return parts.toLowerCase().includes(s);
-    }
-    function renderLogs(data) {
-      const tbody = document.getElementById('logs-tbody');
-      const q = (document.getElementById('logs-search') || {}).value || '';
-      const filtered = q ? data.filter(r => matchesLogSearch(r, q)) : data;
-      document.getElementById('logs-search-hint').textContent = q && data.length ? filtered.length + ' / ' + data.length + ' rows' : '';
-      if (!filtered.length) {
-        tbody.innerHTML = '<tr><td colspan="7">' + (q ? 'No matches for &quot;' + escapeHtml(q) + '&quot;' : 'No network logs yet. Enable &quot;Report URLs&quot; in the extension and browse.') + '</td></tr>';
-        return;
+
+    function filterEvents(data) {
+      let out = data;
+      const q = (document.getElementById('events-search') || {}).value || '';
+      if (q) {
+        const s = q.toLowerCase().trim();
+        out = out.filter(e => {
+          const parts = (e.timestamp || '') + ' ' + (e.client_id || '') + ' ' + (e.page_domain || '') + ' ' + (e.script_domain || '') + ' ' + (e.event_type || '') + ' ' + (e.packet_id || '');
+          return parts.toLowerCase().includes(s);
+        });
       }
-      tbody.innerHTML = filtered.map(r => '<tr><td>' + escapeHtml(r.timestamp) + '</td><td>' + escapeHtml(r.type) + '</td><td class="mono" title="' + escapeHtml(r.url) + '">' + escapeHtml(r.url.length > 60 ? r.url.slice(0, 57) + '...' : r.url) + '</td><td>' + escapeHtml(r.method) + '</td><td>' + (r.blocked ? '<span class="error">✓</span>' : '') + '</td><td class="mono">' + escapeHtml(r.client_id || '') + '</td><td class="mono">' + escapeHtml(r.session_id) + '</td></tr>').join('');
+      const from = document.getElementById('events-date-from')?.value;
+      const to = document.getElementById('events-date-to')?.value;
+      if (from || to) {
+        out = out.filter(e => {
+          const t = e.timestamp ? new Date(e.timestamp).getTime() : 0;
+          if (from && t < new Date(from).getTime()) return false;
+          if (to && t > new Date(to + 'T23:59:59').getTime()) return false;
+          return true;
+        });
+      }
+      const typeFilter = document.getElementById('events-type-filter')?.value;
+      if (typeFilter) {
+        out = out.filter(e => (e.event_type || '') === typeFilter);
+      }
+      return out;
     }
-    function applyLogsSearch() { renderLogs(logsData); }
+
+    function filterLogs(data) {
+      let out = data;
+      const q = (document.getElementById('logs-search') || {}).value || '';
+      if (q) {
+        const s = q.toLowerCase().trim();
+        out = out.filter(r => {
+          const parts = (r.timestamp || '') + ' ' + (r.session_id || '') + ' ' + (r.client_id || '') + ' ' + (r.url || '') + ' ' + (r.type || '');
+          return parts.toLowerCase().includes(s);
+        });
+      }
+      const from = document.getElementById('logs-date-from')?.value;
+      const to = document.getElementById('logs-date-to')?.value;
+      if (from || to) {
+        out = out.filter(r => {
+          const t = r.timestamp ? new Date(r.timestamp).getTime() : 0;
+          if (from && t < new Date(from).getTime()) return false;
+          if (to && t > new Date(to + 'T23:59:59').getTime()) return false;
+          return true;
+        });
+      }
+      const typeFilter = document.getElementById('logs-type-filter')?.value;
+      if (typeFilter) out = out.filter(r => (r.type || '') === typeFilter);
+      return out;
+    }
+
+    function badgeClass(cat) {
+      if (cat === 'security') return 'badge-security';
+      if (cat === 'javascript') return 'badge-javascript';
+      return 'badge-general';
+    }
+
+    function renderEvents(data) {
+      const filtered = filterEvents(data);
+      const sorted = sortData(filtered, eventsSort.key, eventsSort.dir);
+      const total = sorted.length;
+      const start = (eventsPage - 1) * PAGE_SIZE;
+      const pageData = sorted.slice(start, start + PAGE_SIZE);
+
+      const thead = document.getElementById('events-thead');
+      const cols = ['packet_id','event_type','category','page','script','client_id','risk','timestamp'];
+      thead.innerHTML = cols.map(c => {
+        const label = c === 'packet_id' ? 'packet_id' : c === 'risk' ? 'risk' : c;
+        const active = eventsSort.key === c;
+        return '<th class="' + (active ? 'sort-' + (eventsSort.dir > 0 ? 'asc' : 'desc') : '') + '" data-sort="' + c + '">' + escapeHtml(label) + '</th>';
+      }).join('');
+      thead.querySelectorAll('th').forEach(th => {
+        th.addEventListener('click', () => {
+          eventsSort = { key: th.dataset.sort, dir: eventsSort.key === th.dataset.sort ? -eventsSort.dir : -1 };
+          eventsPage = 1;
+          renderEvents(eventsData);
+        });
+      });
+
+      const tbody = document.getElementById('events-tbody');
+      document.getElementById('events-search-hint').textContent = total + ' row' + (total !== 1 ? 's' : '');
+      if (!pageData.length) {
+        tbody.innerHTML = '<tr><td colspan="8">No events</td></tr>';
+      } else {
+        tbody.innerHTML = pageData.map(e => {
+          const cat = e.category || 'general';
+          const risk = e.risk_score != null ? e.risk_score : '';
+          const riskHtml = risk !== '' ? '<span class="risk-bar" title="' + risk + '"><span style="width:' + Math.min(risk, 100) + '%"></span></span>' : '';
+          return '<tr class="packet-row" data-id="' + escapeHtml(e.packet_id) + '" title="' + escapeHtml(e.timestamp || '') + '">' +
+            '<td class="mono">' + escapeHtml(e.packet_id) + '</td>' +
+            '<td>' + escapeHtml(e.event_type) + '</td>' +
+            '<td><span class="badge ' + badgeClass(cat) + '">' + escapeHtml(cat) + '</span></td>' +
+            '<td class="mono">' + escapeHtml(e.page_domain || '') + '</td>' +
+            '<td class="mono">' + escapeHtml(e.script_domain || '') + '</td>' +
+            '<td class="mono">' + escapeHtml(e.client_id || '') + '</td>' +
+            '<td>' + (risk !== '' ? escapeHtml(risk) : '') + riskHtml + '</td>' +
+            '<td>' + escapeHtml(relativeTime(e.timestamp)) + '</td></tr>';
+        }).join('');
+        tbody.querySelectorAll('.packet-row').forEach(row => {
+          row.addEventListener('click', () => inspectPacket(row.dataset.id));
+        });
+      }
+
+      const pag = document.getElementById('events-pagination');
+      const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+      pag.innerHTML = '<button type="button" class="btn" ' + (eventsPage <= 1 ? 'disabled' : '') + ' onclick="eventsPage=1;renderEvents(eventsData)">First</button>' +
+        '<button type="button" class="btn" ' + (eventsPage <= 1 ? 'disabled' : '') + ' onclick="eventsPage--;renderEvents(eventsData)">Prev</button>' +
+        '<span>' + eventsPage + ' / ' + pages + '</span>' +
+        '<button type="button" class="btn" ' + (eventsPage >= pages ? 'disabled' : '') + ' onclick="eventsPage++;renderEvents(eventsData)">Next</button>' +
+        '<button type="button" class="btn" ' + (eventsPage >= pages ? 'disabled' : '') + ' onclick="eventsPage=' + pages + ';renderEvents(eventsData)">Last</button>';
+    }
+
+    function renderLogs(data) {
+      const filtered = filterLogs(data);
+      const sorted = sortData(filtered, logsSort.key, logsSort.dir);
+      const total = sorted.length;
+      const start = (logsPage - 1) * PAGE_SIZE;
+      const pageData = sorted.slice(start, start + PAGE_SIZE);
+
+      const thead = document.getElementById('logs-thead');
+      const cols = ['timestamp','type','url','method','blocked','client_id','session_id'];
+      thead.innerHTML = cols.map(c => '<th class="' + (logsSort.key === c ? 'sort-' + (logsSort.dir > 0 ? 'asc' : 'desc') : '') + '" data-sort="' + c + '">' + escapeHtml(c) + '</th>').join('');
+      thead.querySelectorAll('th').forEach(th => {
+        th.addEventListener('click', () => {
+          logsSort = { key: th.dataset.sort, dir: logsSort.key === th.dataset.sort ? -logsSort.dir : -1 };
+          logsPage = 1;
+          renderLogs(logsData);
+        });
+      });
+
+      const tbody = document.getElementById('logs-tbody');
+      document.getElementById('logs-search-hint').textContent = total + ' row' + (total !== 1 ? 's' : '');
+      if (!pageData.length) {
+        tbody.innerHTML = '<tr><td colspan="7">No logs</td></tr>';
+      } else {
+        tbody.innerHTML = pageData.map(r => {
+          const cls = r.blocked ? ' class="blocked"' : '';
+          return '<tr' + cls + ' title="' + escapeHtml(r.timestamp || '') + '">' +
+            '<td>' + escapeHtml(relativeTime(r.timestamp)) + '</td>' +
+            '<td>' + escapeHtml(r.type) + '</td>' +
+            '<td class="mono" title="' + escapeHtml(r.url) + '">' + escapeHtml(r.url.length > 60 ? r.url.slice(0, 57) + '...' : r.url) + '</td>' +
+            '<td>' + escapeHtml(r.method) + '</td>' +
+            '<td>' + (r.blocked ? '<span class="error">✓</span>' : '') + '</td>' +
+            '<td class="mono">' + escapeHtml(r.client_id || '') + '</td>' +
+            '<td class="mono">' + escapeHtml(r.session_id || '') + '</td></tr>';
+        }).join('');
+      }
+
+      const pag = document.getElementById('logs-pagination');
+      const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+      pag.innerHTML = '<button type="button" class="btn" ' + (logsPage <= 1 ? 'disabled' : '') + ' onclick="logsPage=1;renderLogs(logsData)">First</button>' +
+        '<button type="button" class="btn" ' + (logsPage <= 1 ? 'disabled' : '') + ' onclick="logsPage--;renderLogs(logsData)">Prev</button>' +
+        '<span>' + logsPage + ' / ' + pages + '</span>' +
+        '<button type="button" class="btn" ' + (logsPage >= pages ? 'disabled' : '') + ' onclick="logsPage++;renderLogs(logsData)">Next</button>' +
+        '<button type="button" class="btn" ' + (logsPage >= pages ? 'disabled' : '') + ' onclick="logsPage=' + pages + ';renderLogs(logsData)">Last</button>';
+    }
+
+    const applyEventsSearch = debounce(function() { eventsPage = 1; renderEvents(eventsData); }, DEBOUNCE_MS);
+    const applyLogsSearch = debounce(function() { logsPage = 1; renderLogs(logsData); }, DEBOUNCE_MS);
+
+    document.getElementById('events-search')?.addEventListener('input', applyEventsSearch);
+    document.getElementById('events-date-from')?.addEventListener('change', applyEventsSearch);
+    document.getElementById('events-date-to')?.addEventListener('change', applyEventsSearch);
+    document.getElementById('events-type-filter')?.addEventListener('change', applyEventsSearch);
+    document.getElementById('logs-search')?.addEventListener('input', applyLogsSearch);
+    document.getElementById('logs-date-from')?.addEventListener('change', applyLogsSearch);
+    document.getElementById('logs-date-to')?.addEventListener('change', applyLogsSearch);
+    document.getElementById('logs-type-filter')?.addEventListener('change', applyLogsSearch);
+
+    function showSkeleton(rows, cols, id) {
+      const tbody = document.getElementById(id);
+      tbody.innerHTML = Array(rows).fill('<tr>' + Array(cols).fill('<td><div class="skeleton"></div></td>').join('') + '</tr>').join('');
+    }
+
+    async function loadEvents() {
+      const tbody = document.getElementById('events-tbody');
+      showSkeleton(5, 8, 'events-tbody');
+      try {
+        const r = await fetch(API + '/api/dashboard/events?filter=all');
+        if (!r.ok) throw new Error(r.statusText);
+        const j = await r.json();
+        allEventsCache = j.events || [];
+        eventsData = currentEventFilter === 'all' ? allEventsCache : allEventsCache.filter(e => (e.category || '') === currentEventFilter);
+        lastUpdated = Date.now();
+        updateStatusBar();
+        setConnectionStatus(true);
+        updateTabCounts();
+        populateEventTypeFilter(allEventsCache);
+        renderEvents(eventsData);
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="8" class="error">Failed: ' + escapeHtml(e.message) + ' <button class="btn" onclick="loadEvents()">Retry</button></td></tr>';
+        setConnectionStatus(false);
+      }
+    }
+
     async function loadLogs() {
       const tbody = document.getElementById('logs-tbody');
-      tbody.innerHTML = '<tr><td colspan="7">Loading…</td></tr>';
+      showSkeleton(5, 7, 'logs-tbody');
       try {
         const r = await fetch(API + '/api/logs');
+        if (!r.ok) throw new Error(r.statusText);
         const entries = await r.json();
         const flat = [];
         for (const entry of (entries || [])) {
@@ -245,82 +576,177 @@
               type: log.type || log.request_type || 'other',
               url: log.url || '',
               method: log.method || 'GET',
-              blocked: log.blocked || false,
-              block_reason: log.block_reason || log.blockReason || ''
+              blocked: log.blocked || false
             });
           }
         }
         flat.reverse();
         logsData = flat;
+        lastUpdated = Date.now();
+        updateStatusBar();
+        setConnectionStatus(true);
+        tabCounts.logs = flat.length;
+        document.getElementById('badge-logs').textContent = flat.length;
+        const types = [...new Set(flat.map(r => r.type))].sort();
+        const sel = document.getElementById('logs-type-filter');
+        sel.innerHTML = '<option value="">All types</option>' + types.map(t => '<option value="' + escapeHtml(t) + '">' + escapeHtml(t) + '</option>').join('');
+        logsPage = 1;
         renderLogs(logsData);
       } catch (e) {
-        tbody.innerHTML = '<tr><td colspan="7" class="error">Failed: ' + escapeHtml(e.message) + '</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="error">Failed: ' + escapeHtml(e.message) + ' <button class="btn" onclick="loadLogs()">Retry</button></td></tr>';
+        setConnectionStatus(false);
       }
+    }
+
+    function populateEventTypeFilter(data) {
+      const types = [...new Set(data.map(e => e.event_type).filter(Boolean))].sort();
+      const sel = document.getElementById('events-type-filter');
+      sel.innerHTML = '<option value="">All types</option>' + types.map(t => '<option value="' + escapeHtml(t) + '">' + escapeHtml(t) + '</option>').join('');
+    }
+
+    function updateTabCounts() {
+      const data = allEventsCache || eventsData;
+      tabCounts.events = data.length;
+      tabCounts.security = data.filter(e => (e.category || '') === 'security').length;
+      tabCounts.javascript = data.filter(e => (e.category || '') === 'javascript').length;
+      document.getElementById('badge-events').textContent = tabCounts.events;
+      document.getElementById('badge-security').textContent = tabCounts.security;
+      document.getElementById('badge-javascript').textContent = tabCounts.javascript;
     }
 
     async function loadClients() {
       const el = document.getElementById('clients-list');
-      el.innerHTML = '<li>Loading…</li>';
+      el.innerHTML = '<li><div class="skeleton" style="width:150px"></div></li>';
       try {
         const r = await fetch(API + '/api/dashboard/clients');
+        if (!r.ok) throw new Error(r.statusText);
         const j = await r.json();
-        el.innerHTML = j.clients && j.clients.length ? j.clients.map(c => '<li>' + escapeHtml(c) + '</li>').join('') : '<li>No clients yet</li>';
+        clientsData = j.clients || [];
+        tabCounts.clients = clientsData.length;
+        document.getElementById('badge-clients').textContent = clientsData.length;
+        setConnectionStatus(true);
+        const q = ((document.getElementById('clients-search') || {}).value || '').toLowerCase();
+        const filtered = q ? clientsData.filter(c => c.toLowerCase().includes(q)) : clientsData;
+        el.innerHTML = filtered.length ? filtered.map(c => '<li data-copy="' + escapeHtml(c).replace(/"/g, '&quot;') + '" title="Click to copy">' + escapeHtml(c) + '</li>').join('') : '<li>No clients</li>';
+        el.querySelectorAll('li[data-copy]').forEach(li => li.addEventListener('click', () => navigator.clipboard.writeText(li.dataset.copy)));
       } catch (e) {
-        el.innerHTML = '<li class="error">Failed: ' + escapeHtml(e.message) + '</li>';
+        el.innerHTML = '<li class="error">Failed: ' + escapeHtml(e.message) + ' <button class="btn" onclick="loadClients()">Retry</button></li>';
+        setConnectionStatus(false);
       }
     }
 
-    function renderEvents(data) {
-      const tbody = document.getElementById('events-tbody');
-      const q = (document.getElementById('events-search') || {}).value || '';
-      const filtered = q ? data.filter(e => matchesEventSearch(e, q)) : data;
-      document.getElementById('events-search-hint').textContent = q && data.length ? filtered.length + ' / ' + data.length + ' rows' : '';
-      if (!filtered.length) {
-        tbody.innerHTML = '<tr><td colspan="7">' + (q ? 'No matches for &quot;' + escapeHtml(q) + '&quot;' : 'No events yet') + '</td></tr>';
-        return;
-      }
-      tbody.innerHTML = filtered.map(e => '<tr class="packet-row" data-id="' + escapeHtml(e.packet_id) + '"><td class="mono">' + escapeHtml(e.packet_id) + '</td><td>' + escapeHtml(e.event_type) + '</td><td>' + escapeHtml(e.category || '') + '</td><td class="mono">' + escapeHtml(e.page_domain || '') + '</td><td class="mono">' + escapeHtml(e.script_domain || '') + '</td><td class="mono">' + escapeHtml(e.client_id || '') + '</td><td>' + escapeHtml(e.timestamp || '') + '</td></tr>').join('');
-      tbody.querySelectorAll('.packet-row').forEach(row => {
-        row.addEventListener('click', () => inspectPacket(row.dataset.id));
-      });
-    }
-    function applyEventsSearch() { renderEvents(eventsData); }
-    async function loadEvents() {
-      const tbody = document.getElementById('events-tbody');
-      tbody.innerHTML = '<tr><td colspan="7">Loading…</td></tr>';
-      try {
-        const r = await fetch(API + '/api/dashboard/events?filter=' + encodeURIComponent(currentEventFilter));
-        const j = await r.json();
-        eventsData = j.events || [];
-        renderEvents(eventsData);
-      } catch (e) {
-        tbody.innerHTML = '<tr><td colspan="7" class="error">Failed: ' + escapeHtml(e.message) + '</td></tr>';
-      }
-    }
+    document.getElementById('clients-search')?.addEventListener('input', debounce(() => {
+      const q = (document.getElementById('clients-search')?.value || '').toLowerCase();
+      const filtered = q ? clientsData.filter(c => c.toLowerCase().includes(q)) : clientsData;
+      const el = document.getElementById('clients-list');
+      el.innerHTML = filtered.length ? filtered.map(c => '<li data-copy="' + escapeHtml(c).replace(/"/g, '&quot;') + '" title="Click to copy">' + escapeHtml(c) + '</li>').join('') : '<li>No matches</li>';
+      el.querySelectorAll('li[data-copy]').forEach(li => li.addEventListener('click', () => navigator.clipboard.writeText(li.dataset.copy)));
+    }, DEBOUNCE_MS));
 
     async function inspectPacket(packetId) {
+      inspectPacketId = packetId;
       try {
         const r = await fetch(API + '/api/dashboard/events/' + encodeURIComponent(packetId));
         if (!r.ok) throw new Error(r.statusText);
         const event = await r.json();
+        inspectRawJson = event;
         document.getElementById('inspect').style.display = 'flex';
-        const jsonStr = JSON.stringify(event, null, 2);
-        const pre = document.getElementById('inspect-body');
-        if (typeof hljs !== 'undefined') {
-          pre.innerHTML = hljs.highlight(jsonStr, { language: 'json' }).value;
-          pre.classList.add('hljs');
-        } else {
-          pre.textContent = jsonStr;
-        }
+        renderInspect(event);
+        document.getElementById('inspect-search').value = '';
       } catch (e) {
         document.getElementById('inspect-body').textContent = 'Error: ' + e.message;
         document.getElementById('inspect').style.display = 'flex';
       }
     }
 
+    function linkifyUrls(str) {
+      return str.replace(/(https?:\/\/[^\s"'<>]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+    }
+
+    function renderInspect(obj, searchTerm) {
+      let jsonStr = JSON.stringify(obj, null, 2);
+      if (typeof hljs !== 'undefined') {
+        let html = hljs.highlight(jsonStr, { language: 'json' }).value;
+        html = linkifyUrls(html);
+        if (searchTerm) {
+          const re = new RegExp('(' + searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+          html = html.replace(re, '<mark>$1</mark>');
+        }
+        const pre = document.getElementById('inspect-body');
+        pre.innerHTML = html;
+        pre.classList.add('hljs');
+      } else {
+        document.getElementById('inspect-body').textContent = jsonStr;
+      }
+    }
+
+    document.getElementById('inspect-search')?.addEventListener('input', function() {
+      const q = this.value.trim();
+      if (inspectRawJson) renderInspect(inspectRawJson, q || null);
+    });
+
+    function copyPacketId() {
+      if (inspectPacketId) {
+        navigator.clipboard.writeText(inspectPacketId);
+      }
+    }
+
+    function copyInspectJson() {
+      if (inspectRawJson) {
+        navigator.clipboard.writeText(JSON.stringify(inspectRawJson, null, 2));
+      }
+    }
+
+    function exportEvents() {
+      const filtered = filterEvents(eventsData);
+      const sorted = sortData(filtered, eventsSort.key, eventsSort.dir);
+      const cols = ['packet_id','event_type','category','page_domain','script_domain','client_id','timestamp'];
+      const csv = [cols.join(',')].concat(sorted.map(e => cols.map(c => '"' + String(e[c] || '').replace(/"/g, '""') + '"').join(','))).join('\n');
+      const a = document.createElement('a');
+      a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+      a.download = 'events-' + new Date().toISOString().slice(0, 10) + '.csv';
+      a.click();
+    }
+
+    function exportLogs() {
+      const filtered = filterLogs(logsData);
+      const sorted = sortData(filtered, logsSort.key, logsSort.dir);
+      const cols = ['timestamp','type','url','method','blocked','client_id','session_id'];
+      const csv = [cols.join(',')].concat(sorted.map(r => cols.map(c => '"' + String(r[c] || '').replace(/"/g, '""') + '"').join(','))).join('\n');
+      const a = document.createElement('a');
+      a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+      a.download = 'logs-' + new Date().toISOString().slice(0, 10) + '.csv';
+      a.click();
+    }
+
+    (function initSplitter() {
+      const splitter = document.getElementById('splitter');
+      const tableWrap = document.querySelector('.events-table-wrap');
+      const inspect = document.getElementById('inspect');
+      if (!splitter || !tableWrap || !inspect) return;
+      let startX, startW;
+      splitter.addEventListener('mousedown', function(e) {
+        e.preventDefault();
+        startX = e.clientX;
+        startW = inspect.offsetWidth;
+        document.addEventListener('mousemove', drag);
+        document.addEventListener('mouseup', stopDrag);
+      });
+      function drag(e) {
+        const dx = e.clientX - startX;
+        const w = Math.max(300, Math.min(800, startW - dx));
+        inspect.style.width = w + 'px';
+      }
+      function stopDrag() {
+        document.removeEventListener('mousemove', drag);
+        document.removeEventListener('mouseup', stopDrag);
+      }
+    })();
+
     async function loadBlocklist() {
       try {
         const r = await fetch(API + '/api/blocklist');
+        if (!r.ok) throw new Error(r.statusText);
         const j = await r.json();
         document.getElementById('blocklist-urls').value = (j.url_patterns || j.urlPatterns || []).join('\n');
         document.getElementById('blocklist-youtube').value = (j.youtube_channels || j.youtubeChannels || []).join('\n');
@@ -331,6 +757,7 @@
     }
 
     async function saveBlocklist() {
+      if (!confirm('Save blocklist? This will update URL patterns and YouTube channels.')) return;
       const msg = document.getElementById('blocklist-msg');
       msg.textContent = '';
       msg.className = '';
@@ -352,16 +779,10 @@
       }
     }
 
-    function escapeHtml(s) {
-      if (s == null) return '';
-      const d = document.createElement('div');
-      d.textContent = s;
-      return d.innerHTML;
-    }
-
+    checkHealth();
     loadEvents();
-    setInterval(loadEvents, 5000);
-    setInterval(() => { if (document.getElementById('panel-logs').classList.contains('active')) loadLogs(); }, 5000);
+    refreshInterval = setInterval(refreshCurrent, 5000);
+    setInterval(updateStatusBar, 1000);
   </script>
 </body>
 </html>

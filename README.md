@@ -1,4 +1,5 @@
-# CanIGoIn
+<p align="center"><img width="120" src="./.github/logo.png"></p>
+<h2 align="center">CanIGoIn ?</h2>
 
 Chrome extension with unified Rust server for network monitoring, clickfix detection, YouTube channel whitelisting, and extension tracking.
 

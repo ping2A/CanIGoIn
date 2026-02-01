@@ -88,6 +88,7 @@ async fn main() -> std::io::Result<()> {
                     }))
                     .route("/", web::get().to(handlers::dashboard::serve_dashboard))
                     .route("/dashboard", web::get().to(handlers::dashboard::serve_dashboard))
+                    .route("/logo.png", web::get().to(handlers::dashboard::serve_logo))
                     .route("/health", web::get().to(health_check))
                     .route("/api/logs", web::post().to(handlers::logs::post_logs_simple))
                     .route("/api/logs", web::get().to(handlers::logs::get_logs_simple))
@@ -146,6 +147,9 @@ async fn main() -> std::io::Result<()> {
                 App::new()
                     .wrap(cors)
                     .app_data(state.clone())
+                    .route("/", web::get().to(handlers::dashboard::serve_dashboard))
+                    .route("/dashboard", web::get().to(handlers::dashboard::serve_dashboard))
+                    .route("/logo.png", web::get().to(handlers::dashboard::serve_logo))
                     .route("/health", web::get().to(health_check))
                     .route("/api/logs", web::post().to(handlers::logs::post_logs_production))
                     .route(

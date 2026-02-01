@@ -81,6 +81,12 @@ pub async fn get_dashboard_events_simple(
             packet_id
         };
         let (page_domain, script_domain) = extract_domains(&e.data);
+        let risk_score = e
+            .data
+            .get("detection")
+            .and_then(|d| d.get("riskScore"))
+            .and_then(|v| v.as_u64())
+            .map(|n| n as i64);
         out.push(serde_json::json!({
             "packet_id": packet_id,
             "event_type": e.event_type,
@@ -91,6 +97,7 @@ pub async fn get_dashboard_events_simple(
             "session_id": e.session_id,
             "timestamp": e.timestamp,
             "user_agent": e.user_agent,
+            "risk_score": risk_score,
         }));
     }
 
@@ -153,4 +160,10 @@ pub async fn serve_dashboard() -> impl Responder {
     HttpResponse::Ok()
         .content_type("text/html; charset=utf-8")
         .body(include_str!("../../static/dashboard.html"))
+}
+
+pub async fn serve_logo() -> impl Responder {
+    HttpResponse::Ok()
+        .content_type("image/png")
+        .body(include_bytes!("../../static/logo.png").as_slice())
 }
