@@ -43,6 +43,8 @@ cargo run --release -- --mode simple --port 3000
 
 **That's it!** Server runs on `http://127.0.0.1:8080`
 
+**Live dashboard:** Open `http://127.0.0.1:8080/` (or `http://127.0.0.1:8080/dashboard`) to view clients, packets (with packet_id), inspect each packet, and manage blocklist/whitelists.
+
 ### Production Mode
 
 ```bash

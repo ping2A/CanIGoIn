@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CanIGoIn – Dashboard</title>
+  <link id="hljs-theme" rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/atom-one-dark.min.css">
+  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
+  <script>
+    (function(){var t=localStorage.getItem('cigi-dashboard-theme');var p=window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches;var theme=t||(p?'light':'dark');if(theme==='light')document.documentElement.setAttribute('data-theme','light');})();
+  </script>
+  <style>
+    * { box-sizing: border-box; }
+
+    :root {
+      --bg: #0f172a;
+      --bg-elevated: #1e293b;
+      --bg-hover: #334155;
+      --bg-active: #475569;
+      --text: #e2e8f0;
+      --text-muted: #94a3b8;
+      --text-bright: #f8fafc;
+      --border: #334155;
+      --link: #38bdf8;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --error: #f87171;
+      --live: #22c55e;
+    }
+
+    [data-theme="light"] {
+      --bg: #f8fafc;
+      --bg-elevated: #f1f5f9;
+      --bg-hover: #e2e8f0;
+      --bg-active: #cbd5e1;
+      --text: #1e293b;
+      --text-muted: #64748b;
+      --text-bright: #0f172a;
+      --border: #cbd5e1;
+      --link: #0284c7;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --error: #dc2626;
+      --live: #16a34a;
+    }
+
+    body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 0; padding: 16px; background: var(--bg); color: var(--text); }
+    h1 { font-size: 1.5rem; margin: 0 0 16px; color: var(--text-bright); }
+    h2 { font-size: 1.1rem; margin: 20px 0 8px; color: var(--text-muted); }
+    a { color: var(--link); }
+    .header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+    .header h1 { margin: 0; }
+    .theme-toggle { padding: 6px 12px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text); border-radius: 6px; cursor: pointer; font-size: 13px; }
+    .theme-toggle:hover { background: var(--bg-hover); }
+    .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+    .tabs button { padding: 8px 16px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text); border-radius: 6px; cursor: pointer; }
+    .tabs button.active { background: var(--bg-hover); }
+    .tabs button:hover { background: var(--bg-active); }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { background: var(--bg-elevated); color: var(--text-muted); }
+    tr:hover { background: var(--bg-elevated); }
+    .mono { font-family: ui-monospace, monospace; font-size: 12px; }
+    .packet-row { cursor: pointer; }
+    pre { background: var(--bg-elevated); padding: 12px; border-radius: 6px; overflow: auto; font-size: 12px; white-space: pre-wrap; }
+    .events-layout { display: flex; gap: 16px; align-items: flex-start; min-height: 300px; }
+    .events-table { flex: 1; min-width: 0; }
+    .inspect { width: 520px; flex-shrink: 0; position: sticky; top: 16px; border: 1px solid var(--border); border-radius: 6px; padding: 16px; background: var(--bg-elevated); max-height: calc(100vh - 100px); display: flex; flex-direction: column; }
+    .inspect h2 { margin: 0 0 12px; }
+    .inspect pre { flex: 1; min-height: 0; max-height: 70vh; font-size: 13px; line-height: 1.5; margin: 0; background: transparent; }
+    .inspect pre.hljs { padding: 0; }
+    .clients-list { list-style: none; padding: 0; margin: 0; }
+    .clients-list li { padding: 8px 12px; border-bottom: 1px solid var(--border); font-family: ui-monospace, monospace; font-size: 13px; }
+    .blocklist-section { margin-bottom: 20px; }
+    .blocklist-section label { display: block; margin-bottom: 4px; color: var(--text-muted); }
+    textarea { width: 100%; min-height: 100px; padding: 8px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: ui-monospace, monospace; font-size: 12px; }
+    button.primary { padding: 8px 16px; background: var(--primary); border: none; border-radius: 6px; color: white; cursor: pointer; }
+    button.primary:hover { background: var(--primary-hover); }
+    .refresh { margin-bottom: 12px; }
+    .search-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+    .search-bar input { padding: 6px 10px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 13px; min-width: 200px; }
+    .search-bar input::placeholder { color: var(--text-muted); }
+    .search-bar span { color: var(--text-muted); font-size: 12px; }
+    .error { color: var(--error); }
+    .live { display: inline-block; width: 8px; height: 8px; background: var(--live); border-radius: 50%; margin-right: 8px; animation: pulse 2s infinite; }
+    @keyframes pulse { 50% { opacity: 0.6; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1><span class="live"></span>CanIGoIn Dashboard</h1>
+    <button type="button" class="theme-toggle" id="theme-toggle" title="Toggle theme">Dark</button>
+  </div>
+  <div class="tabs">
+    <button type="button" data-tab="events">All events</button>
+    <button type="button" data-tab="security">Security</button>
+    <button type="button" data-tab="javascript">JavaScript</button>
+    <button type="button" data-tab="logs">Network logs</button>
+    <button type="button" data-tab="clients">Clients</button>
+    <button type="button" data-tab="blocklist">Blocklist / Whitelists</button>
+  </div>
+
+  <div id="panel-logs" class="panel">
+    <h2>Network logs (newest first)</h2>
+    <div class="search-bar" id="logs-search-bar">
+      <input type="text" id="logs-search" placeholder="Search by client_id, time, url..." oninput="applyLogsSearch()">
+      <span id="logs-search-hint"></span>
+    </div>
+    <div class="refresh"><button type="button" class="primary" onclick="loadLogs()">Refresh</button></div>
+    <table>
+      <thead>
+        <tr><th>timestamp</th><th>type</th><th>url</th><th>method</th><th>blocked</th><th>client_id</th><th>session_id</th></tr>
+      </thead>
+      <tbody id="logs-tbody"></tbody>
+    </table>
+  </div>
+
+  <div id="panel-clients" class="panel">
+    <h2>Clients</h2>
+    <div class="refresh"><button type="button" class="primary" onclick="loadClients()">Refresh</button></div>
+    <ul id="clients-list" class="clients-list"></ul>
+  </div>
+
+  <div id="panel-events" class="panel active">
+    <h2 id="events-title">All events (newest first)</h2>
+    <div class="search-bar" id="events-search-bar">
+      <input type="text" id="events-search" placeholder="Search by client_id, time, url..." oninput="applyEventsSearch()">
+      <span id="events-search-hint"></span>
+    </div>
+    <div class="refresh"><button type="button" class="primary" onclick="loadEvents()">Refresh</button></div>
+    <div class="events-layout">
+      <div class="events-table">
+        <table>
+          <thead>
+            <tr><th>packet_id</th><th>event_type</th><th>category</th><th>page</th><th>script</th><th>client_id</th><th>timestamp</th></tr>
+          </thead>
+          <tbody id="events-tbody"></tbody>
+        </table>
+      </div>
+      <div id="inspect" class="inspect" style="display:none;">
+        <h2>Inspect packet</h2>
+        <pre id="inspect-body" class="json-hl"></pre>
+      </div>
+    </div>
+  </div>
+
+  <div id="panel-blocklist" class="panel">
+    <h2>URL blocklist patterns</h2>
+    <div class="blocklist-section">
+      <label>One pattern per line (regex)</label>
+      <textarea id="blocklist-urls" rows="6"></textarea>
+    </div>
+    <h2>YouTube channel blocklist</h2>
+    <div class="blocklist-section">
+      <label>One channel per line (e.g. @spam)</label>
+      <textarea id="blocklist-youtube" rows="4"></textarea>
+    </div>
+    <button type="button" class="primary" onclick="saveBlocklist()">Save blocklist</button>
+    <span id="blocklist-msg" style="margin-left:12px;"></span>
+  </div>
+
+  <script>
+    const API = '';
+    (function initTheme() {
+      const key = 'cigi-dashboard-theme';
+      const toggle = document.getElementById('theme-toggle');
+      function getSavedTheme() { return localStorage.getItem(key); }
+      function prefersLight() { return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches; }
+      function applyTheme(theme) {
+        const isLight = theme === 'light';
+        document.documentElement.setAttribute('data-theme', isLight ? 'light' : '');
+        toggle.textContent = isLight ? 'Light' : 'Dark';
+        localStorage.setItem(key, theme);
+        const hljsLink = document.getElementById('hljs-theme');
+        if (hljsLink) hljsLink.href = isLight
+          ? 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/atom-one-light.min.css'
+          : 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/atom-one-dark.min.css';
+      }
+      const saved = getSavedTheme();
+      const initial = saved || (prefersLight() ? 'light' : 'dark');
+      applyTheme(initial);
+      toggle.addEventListener('click', () => applyTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light'));
+    })();
+    let currentEventFilter = 'all';
+    const EVENT_TABS = ['events', 'security', 'javascript'];
+    let eventsData = [];
+    let logsData = [];
+    function tab(t) {
+      document.getElementById('inspect').style.display = 'none';
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+      const panelId = EVENT_TABS.includes(t) ? 'panel-events' : 'panel-' + t;
+      document.getElementById(panelId).classList.add('active');
+      document.querySelector('.tabs button[data-tab="' + t + '"]').classList.add('active');
+      if (EVENT_TABS.includes(t)) {
+        currentEventFilter = t === 'events' ? 'all' : t;
+        const titles = { all: 'All events (newest first)', security: 'Security events (newest first)', javascript: 'JavaScript events (newest first)' };
+        document.getElementById('events-title').textContent = titles[currentEventFilter];
+        loadEvents();
+      } else if (t === 'logs') loadLogs();
+      else if (t === 'clients') loadClients();
+      else if (t === 'blocklist') loadBlocklist();
+    }
+    document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => tab(b.dataset.tab)));
+
+    function matchesEventSearch(row, q) {
+      if (!q) return true;
+      const s = q.toLowerCase().trim();
+      const parts = (row.timestamp || '') + ' ' + (row.client_id || '') + ' ' + (row.page_domain || '') + ' ' + (row.script_domain || '') + ' ' + (row.event_type || '') + ' ' + (row.packet_id || '');
+      return parts.toLowerCase().includes(s);
+    }
+    function matchesLogSearch(row, q) {
+      if (!q) return true;
+      const s = q.toLowerCase().trim();
+      const parts = (row.timestamp || '') + ' ' + (row.session_id || '') + ' ' + (row.client_id || '') + ' ' + (row.url || '') + ' ' + (row.type || '');
+      return parts.toLowerCase().includes(s);
+    }
+    function renderLogs(data) {
+      const tbody = document.getElementById('logs-tbody');
+      const q = (document.getElementById('logs-search') || {}).value || '';
+      const filtered = q ? data.filter(r => matchesLogSearch(r, q)) : data;
+      document.getElementById('logs-search-hint').textContent = q && data.length ? filtered.length + ' / ' + data.length + ' rows' : '';
+      if (!filtered.length) {
+        tbody.innerHTML = '<tr><td colspan="7">' + (q ? 'No matches for &quot;' + escapeHtml(q) + '&quot;' : 'No network logs yet. Enable &quot;Report URLs&quot; in the extension and browse.') + '</td></tr>';
+        return;
+      }
+      tbody.innerHTML = filtered.map(r => '<tr><td>' + escapeHtml(r.timestamp) + '</td><td>' + escapeHtml(r.type) + '</td><td class="mono" title="' + escapeHtml(r.url) + '">' + escapeHtml(r.url.length > 60 ? r.url.slice(0, 57) + '...' : r.url) + '</td><td>' + escapeHtml(r.method) + '</td><td>' + (r.blocked ? '<span class="error">✓</span>' : '') + '</td><td class="mono">' + escapeHtml(r.client_id || '') + '</td><td class="mono">' + escapeHtml(r.session_id) + '</td></tr>').join('');
+    }
+    function applyLogsSearch() { renderLogs(logsData); }
+    async function loadLogs() {
+      const tbody = document.getElementById('logs-tbody');
+      tbody.innerHTML = '<tr><td colspan="7">Loading…</td></tr>';
+      try {
+        const r = await fetch(API + '/api/logs');
+        const entries = await r.json();
+        const flat = [];
+        for (const entry of (entries || [])) {
+          for (const log of (entry.logs || [])) {
+            flat.push({
+              timestamp: entry.timestamp,
+              session_id: entry.session_id,
+              client_id: entry.client_id || '',
+              type: log.type || log.request_type || 'other',
+              url: log.url || '',
+              method: log.method || 'GET',
+              blocked: log.blocked || false,
+              block_reason: log.block_reason || log.blockReason || ''
+            });
+          }
+        }
+        flat.reverse();
+        logsData = flat;
+        renderLogs(logsData);
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="7" class="error">Failed: ' + escapeHtml(e.message) + '</td></tr>';
+      }
+    }
+
+    async function loadClients() {
+      const el = document.getElementById('clients-list');
+      el.innerHTML = '<li>Loading…</li>';
+      try {
+        const r = await fetch(API + '/api/dashboard/clients');
+        const j = await r.json();
+        el.innerHTML = j.clients && j.clients.length ? j.clients.map(c => '<li>' + escapeHtml(c) + '</li>').join('') : '<li>No clients yet</li>';
+      } catch (e) {
+        el.innerHTML = '<li class="error">Failed: ' + escapeHtml(e.message) + '</li>';
+      }
+    }
+
+    function renderEvents(data) {
+      const tbody = document.getElementById('events-tbody');
+      const q = (document.getElementById('events-search') || {}).value || '';
+      const filtered = q ? data.filter(e => matchesEventSearch(e, q)) : data;
+      document.getElementById('events-search-hint').textContent = q && data.length ? filtered.length + ' / ' + data.length + ' rows' : '';
+      if (!filtered.length) {
+        tbody.innerHTML = '<tr><td colspan="7">' + (q ? 'No matches for &quot;' + escapeHtml(q) + '&quot;' : 'No events yet') + '</td></tr>';
+        return;
+      }
+      tbody.innerHTML = filtered.map(e => '<tr class="packet-row" data-id="' + escapeHtml(e.packet_id) + '"><td class="mono">' + escapeHtml(e.packet_id) + '</td><td>' + escapeHtml(e.event_type) + '</td><td>' + escapeHtml(e.category || '') + '</td><td class="mono">' + escapeHtml(e.page_domain || '') + '</td><td class="mono">' + escapeHtml(e.script_domain || '') + '</td><td class="mono">' + escapeHtml(e.client_id || '') + '</td><td>' + escapeHtml(e.timestamp || '') + '</td></tr>').join('');
+      tbody.querySelectorAll('.packet-row').forEach(row => {
+        row.addEventListener('click', () => inspectPacket(row.dataset.id));
+      });
+    }
+    function applyEventsSearch() { renderEvents(eventsData); }
+    async function loadEvents() {
+      const tbody = document.getElementById('events-tbody');
+      tbody.innerHTML = '<tr><td colspan="7">Loading…</td></tr>';
+      try {
+        const r = await fetch(API + '/api/dashboard/events?filter=' + encodeURIComponent(currentEventFilter));
+        const j = await r.json();
+        eventsData = j.events || [];
+        renderEvents(eventsData);
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="7" class="error">Failed: ' + escapeHtml(e.message) + '</td></tr>';
+      }
+    }
+
+    async function inspectPacket(packetId) {
+      try {
+        const r = await fetch(API + '/api/dashboard/events/' + encodeURIComponent(packetId));
+        if (!r.ok) throw new Error(r.statusText);
+        const event = await r.json();
+        document.getElementById('inspect').style.display = 'flex';
+        const jsonStr = JSON.stringify(event, null, 2);
+        const pre = document.getElementById('inspect-body');
+        if (typeof hljs !== 'undefined') {
+          pre.innerHTML = hljs.highlight(jsonStr, { language: 'json' }).value;
+          pre.classList.add('hljs');
+        } else {
+          pre.textContent = jsonStr;
+        }
+      } catch (e) {
+        document.getElementById('inspect-body').textContent = 'Error: ' + e.message;
+        document.getElementById('inspect').style.display = 'flex';
+      }
+    }
+
+    async function loadBlocklist() {
+      try {
+        const r = await fetch(API + '/api/blocklist');
+        const j = await r.json();
+        document.getElementById('blocklist-urls').value = (j.url_patterns || j.urlPatterns || []).join('\n');
+        document.getElementById('blocklist-youtube').value = (j.youtube_channels || j.youtubeChannels || []).join('\n');
+      } catch (e) {
+        document.getElementById('blocklist-msg').textContent = 'Failed to load: ' + e.message;
+        document.getElementById('blocklist-msg').className = 'error';
+      }
+    }
+
+    async function saveBlocklist() {
+      const msg = document.getElementById('blocklist-msg');
+      msg.textContent = '';
+      msg.className = '';
+      const urlPatterns = document.getElementById('blocklist-urls').value.split('\n').map(s => s.trim()).filter(Boolean);
+      const youtubeChannels = document.getElementById('blocklist-youtube').value.split('\n').map(s => s.trim()).filter(Boolean);
+      try {
+        const r = await fetch(API + '/api/blocklist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url_patterns: urlPatterns, urlPatterns: urlPatterns, youtube_channels: youtubeChannels, youtubeChannels: youtubeChannels })
+        });
+        const j = await r.json();
+        if (r.ok) msg.textContent = 'Saved.';
+        else msg.textContent = j.error || 'Failed';
+        if (!r.ok) msg.className = 'error';
+      } catch (e) {
+        msg.textContent = 'Failed: ' + e.message;
+        msg.className = 'error';
+      }
+    }
+
+    function escapeHtml(s) {
+      if (s == null) return '';
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    loadEvents();
+    setInterval(loadEvents, 5000);
+    setInterval(() => { if (document.getElementById('panel-logs').classList.contains('active')) loadLogs(); }, 5000);
+  </script>
+</body>
+</html>

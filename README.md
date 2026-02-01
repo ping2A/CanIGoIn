@@ -71,6 +71,7 @@ Server runs on `http://127.0.0.1:8080` with no setup required.
 - **JS execution** – Report external script loads (script tags with `src`) to `/api/extensions` (on by default)
 - **Clickfix** – Detect clipboard/copy-based social engineering (e.g. PowerShell in console) and report to `/api/security` (on by default)
 - **Extension monitoring** – Report extension install/uninstall/update to `/api/extensions` (off by default)
+- **Report file uploads (e.g. ChatGPT)** – Report when the user uploads files to monitored hosts (e.g. ChatGPT); hosts configurable (off by default)
 
 **Core**  
 - **Client ID** – Persistent identifier sent in all requests (`/api/logs`, `/api/extensions`, `/api/security`); visible in Settings, copy/generate.
@@ -86,6 +87,7 @@ Server runs on `http://127.0.0.1:8080` with no setup required.
 
 **Security**  
 - **Clickfix detection** – Detects suspicious copy-paste (PowerShell, base64, etc.) and sends events to `POST /api/security`.
+- **ChatGPT file upload** – When enabled, detects file uploads to ChatGPT (`chatgpt.com/backend-api/files`) and sends `chatgpt_file_upload` to `POST /api/security` (filename and payload captured when possible).
 - **Extension security scan** – Optional; results sent to `/api/security`.
 
 ### Rust Server

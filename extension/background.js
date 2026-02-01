@@ -29,7 +29,9 @@ const CONFIG = {
   // Reporting features (can be toggled via "Enable all features" in popup)
   enableReportUrls: false,       // Report network requests / URLs to server (OFF by default)
   enableJsExecution: true,       // Report JS execution (eval, Function, script load)
-  enableClickfix: true         // Report clickfix / security (clipboard, copy) detections
+  enableClickfix: true,          // Report clickfix / security (clipboard, copy) detections
+  // ChatGPT file upload: detect POST to chatgpt.com /files with payload (file_name, file_size, use_case)
+  enableFileUploadMonitor: false
 };
 
 // Predefined whitelist of major domains to reduce server load
@@ -140,6 +142,22 @@ let statistics = {
 let extensionCache = new Map();
 let extensionMonitoringEnabled = true;
 
+// Deduplication: prevent same event from being sent multiple times
+const DEDUP_TTL_MS = 15000; // 15 seconds
+const recentEventKeys = new Map(); // key -> timestamp
+function wasRecentlySent(key) {
+  const now = Date.now();
+  const ts = recentEventKeys.get(key);
+  if (ts && now - ts < DEDUP_TTL_MS) return true;
+  recentEventKeys.set(key, now);
+  // Prune old entries
+  if (recentEventKeys.size > 500) {
+    const cutoff = now - DEDUP_TTL_MS;
+    for (const [k, t] of recentEventKeys) if (t < cutoff) recentEventKeys.delete(k);
+  }
+  return false;
+}
+
 // ============================================================================
 // Initialization
 // ============================================================================
@@ -149,7 +167,7 @@ chrome.storage.local.get([
   'blockList', 'enableBlocking', 'whitelistedYouTubeChannels', 'youtubeChannelWhitelistEnabled',
   'serverUrl', 'maxBufferSize', 'enableLocalBackup', 'domainWhitelist', 'enableDomainWhitelist',
   'enableReportUrls', 'enableJsExecution', 'enableClickfix', 'extensionMonitoring',
-  'clientId'
+  'enableFileUploadMonitor', 'clientId'
 ], (result) => {
   if (result.blockList) CONFIG.blockList = result.blockList;
   if (result.enableBlocking !== undefined) CONFIG.enableBlocking = result.enableBlocking;
@@ -177,6 +195,7 @@ chrome.storage.local.get([
   if (result.enableJsExecution !== undefined) CONFIG.enableJsExecution = result.enableJsExecution;
   if (result.enableClickfix !== undefined) CONFIG.enableClickfix = result.enableClickfix;
   if (result.extensionMonitoring !== undefined) extensionMonitoringEnabled = result.extensionMonitoring;
+  if (result.enableFileUploadMonitor !== undefined) CONFIG.enableFileUploadMonitor = result.enableFileUploadMonitor;
 
   // Client ID (persistent identifier for this browser/installation)
   if (result.clientId) {
@@ -231,6 +250,29 @@ function fetchWithTimeout(url, options = {}, timeoutMs = null) {
       clearTimeout(timeoutId);
       throw err;
     });
+}
+
+// Send chatgpt_file_upload directly to /api/security (no batch) so it always reaches the server
+async function sendFileUploadDetectionToServer(event) {
+  const securityUrl = CONFIG.serverUrl.replace('/api/logs', '/api/security');
+  const payload = {
+    client_id: clientId || null,
+    session_id: sessionId,
+    timestamp: event.timestamp || new Date().toISOString(),
+    user_agent: navigator.userAgent,
+    event_type: 'chatgpt_file_upload',
+    data: event
+  };
+  try {
+    const body = CONFIG.enableCompression ? await compressData(payload) : JSON.stringify(payload);
+    const headers = { 'Content-Type': 'application/json' };
+    if (CONFIG.enableCompression && body instanceof Uint8Array) headers['Content-Encoding'] = 'gzip';
+    const resp = await fetchWithTimeout(securityUrl, { method: 'POST', headers, body }, CONFIG.fetchTimeoutMs);
+    if (!resp.ok) console.error('❌ Server rejected chatgpt_file_upload:', resp.status, securityUrl);
+    else console.log('✅ Sent chatgpt_file_upload to server', securityUrl);
+  } catch (err) {
+    console.error('❌ Failed to send chatgpt_file_upload to', securityUrl, err.message || err);
+  }
 }
 
 // Test server connection
@@ -605,6 +647,131 @@ chrome.webRequest.onBeforeRequest.addListener(
   { urls: ['<all_urls>'] }
 );
 
+// ---------------------------------------------------------------------------
+// ChatGPT file upload: POST to chatgpt.com or openai.com with path
+// "/backend-api/files" or "/files" and payload like { file_name, file_size, use_case }.
+// DISABLED BY DEFAULT.
+// ---------------------------------------------------------------------------
+function parseChatGptFilesPayload(requestBody) {
+  if (!requestBody || !requestBody.raw || !Array.isArray(requestBody.raw)) return null;
+  try {
+    const decoder = new TextDecoder('utf-8');
+    const chunks = [];
+    for (const item of requestBody.raw) {
+      if (item.bytes) chunks.push(decoder.decode(new Uint8Array(item.bytes)));
+    }
+    if (chunks.length === 0) return null;
+    const obj = JSON.parse(chunks.join(''));
+    if (obj && (typeof obj.file_name !== 'undefined' || typeof obj.use_case !== 'undefined')) return obj;
+    return null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// One event per upload: only /backend-api/files (not process_upload_stream). Content script sends body; fallback after 600ms.
+let pendingFileUploadByTab = Object.create(null);
+let sentFileUploadByTab = Object.create(null);
+const FILE_UPLOAD_DEDUPE_MS = 3000;
+
+function shouldSkipFileUploadSend(tabId, file_name) {
+  const last = sentFileUploadByTab[tabId];
+  if (!last) return false;
+  if (Date.now() - last.time > FILE_UPLOAD_DEDUPE_MS) return false;
+  return last.file_name === (file_name || '');
+}
+
+function recordFileUploadSent(tabId, file_name) {
+  sentFileUploadByTab[tabId] = { file_name: file_name || '', time: Date.now() };
+}
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type !== 'chatgpt_file_upload_body' || !CONFIG.enableFileUploadMonitor) return;
+  const tabId = sender.tab && sender.tab.id;
+  if (tabId == null) return;
+  const file_name = msg.file_name != null ? String(msg.file_name) : null;
+  if (shouldSkipFileUploadSend(tabId, file_name)) return;
+  const pending = pendingFileUploadByTab[tabId];
+  if (pending && pending.timeoutId) {
+    clearTimeout(pending.timeoutId);
+    pending.timeoutId = null;
+  }
+  delete pendingFileUploadByTab[tabId];
+  const event = {
+    type: 'chatgpt_file_upload',
+    file_name,
+    url: msg.url || 'https://chatgpt.com/backend-api/files',
+    host: 'chatgpt.com',
+    path: '/backend-api/files',
+    method: 'POST',
+    chatgpt_files: true,
+    payload: msg.payload || null,
+    tabId,
+    timestamp: new Date().toISOString(),
+    requestId: ''
+  };
+  recordFileUploadSent(tabId, file_name);
+  console.log('📤 ChatGPT file upload (from page):', file_name || '(no name)');
+  sendFileUploadDetectionToServer(event);
+});
+
+// Listener: no requestBody so Chrome always invokes us. Only /backend-api/files; wait 600ms for content script body.
+chrome.webRequest.onBeforeRequest.addListener(
+  handleChatGptFileUpload,
+  { urls: ['<all_urls>'] }
+);
+
+function handleChatGptFileUpload(details) {
+  if (!CONFIG.enableFileUploadMonitor) return;
+  const method = (details.method || '').toUpperCase();
+  if (method !== 'POST' && method !== 'PUT' && method !== 'PATCH') return;
+  try {
+    const urlObj = new URL(details.url);
+    const host = urlObj.hostname.toLowerCase();
+    const path = (urlObj.pathname || '').toLowerCase();
+    if (path.includes('process_upload_stream')) return;
+    const isMainUpload = path.endsWith('/backend-api/files') || path === '/backend-api/files';
+    if (!isMainUpload) return;
+    const isChatGptOrOpenAi = host.includes('chatgpt') || host.includes('openai');
+    if (!isChatGptOrOpenAi) return;
+    const payload = details.requestBody ? parseChatGptFilesPayload(details.requestBody) : null;
+    const file_name = payload && payload.file_name != null ? String(payload.file_name) : null;
+    const event = {
+      type: 'chatgpt_file_upload',
+      file_name,
+      url: details.url,
+      host,
+      path,
+      method,
+      chatgpt_files: true,
+      payload: payload ? { ...payload } : null,
+      tabId: details.tabId,
+      timestamp: new Date().toISOString(),
+      requestId: details.requestId
+    };
+    const tabId = details.tabId;
+    if (tabId > 0) {
+      const existing = pendingFileUploadByTab[tabId];
+      if (existing && existing.timeoutId) clearTimeout(existing.timeoutId);
+      pendingFileUploadByTab[tabId] = {
+        event,
+        timeoutId: setTimeout(() => {
+          delete pendingFileUploadByTab[tabId];
+          if (shouldSkipFileUploadSend(tabId, file_name)) return;
+          recordFileUploadSent(tabId, file_name);
+          console.log('📤 ChatGPT file upload (fallback):', details.url, file_name || '(no body)');
+          sendFileUploadDetectionToServer(event);
+        }, 600)
+      };
+    } else {
+      console.log('📤 ChatGPT file upload:', details.url, file_name || '(no body)');
+      sendFileUploadDetectionToServer(event);
+    }
+  } catch (e) {
+    console.warn('ChatGPT file upload check failed:', e);
+  }
+}
+
 // When page finishes loading, log summary
 chrome.webNavigation.onCompleted.addListener((details) => {
   if (details.frameId !== 0) return;
@@ -643,13 +810,29 @@ chrome.webNavigation.onCompleted.addListener((details) => {
 // ============================================================================
 
 function logEntry(entry) {
-  // Feature toggles: skip if feature is disabled
   const entryType = entry.type || '';
-  if (entryType === 'clickfix_detection' && !CONFIG.enableClickfix) return;
-  if (entryType === 'javascript_execution' && !CONFIG.enableJsExecution) return;
-  const isNetworkLog = entry.requestId || (entry.url && entryType !== 'clickfix_detection' && entryType !== 'javascript_execution');
-  if (isNetworkLog && !CONFIG.enableReportUrls) return;
+  const urlSnippet = (entry.url || '').slice(0, 50);
 
+  // Feature toggles: skip if feature is disabled (chatgpt_file_upload is off by default)
+  if (entryType === 'clickfix_detection' && !CONFIG.enableClickfix) {
+    console.log(`📋 logEntry SKIP: type=${entryType} (enableClickfix=false)`);
+    return;
+  }
+  if (entryType === 'javascript_execution' && !CONFIG.enableJsExecution) {
+    console.log(`📋 logEntry SKIP: type=${entryType} (enableJsExecution=false) url=${urlSnippet}`);
+    return;
+  }
+  if (entryType === 'chatgpt_file_upload' && !CONFIG.enableFileUploadMonitor) {
+    console.log(`📋 logEntry SKIP: type=${entryType} (enableFileUploadMonitor=false)`);
+    return;
+  }
+  const isNetworkLog = entry.requestId || (entry.url && entryType !== 'clickfix_detection' && entryType !== 'javascript_execution' && entryType !== 'chatgpt_file_upload');
+  if (isNetworkLog && !CONFIG.enableReportUrls && entryType !== 'page_summary') {
+    console.log(`📋 logEntry SKIP: type=${entryType} isNetworkLog=true enableReportUrls=false (page_summary bypass) url=${urlSnippet}`);
+    return;
+  }
+
+  console.log(`📋 logEntry SEND: type=${entryType} url=${urlSnippet} isNetworkLog=${!!isNetworkLog} bufLen=${logBuffer.length + 1}`);
   const sanitized = sanitizeData(entry);
   
   statistics.loggedRequests++;
@@ -682,6 +865,16 @@ function logEntry(entry) {
       }
     }, Math.min(CONFIG.batchInterval, 5000));
   }
+
+  // Send immediately for events we must not lose when the service worker suspends
+  // (the 5s debounce often never runs before the SW goes to sleep)
+  const immediateSendTypes = [
+    'chatgpt_file_upload', 'clickfix_detection', 'javascript_execution', 'extension_security_scan',
+    'script', 'page_summary', 'main_frame'  // network logs that should reach server before SW sleeps
+  ];
+  if (immediateSendTypes.includes(entryType)) {
+    sendLogBatch();
+  }
 }
 
 // ============================================================================
@@ -694,19 +887,102 @@ async function sendLogBatch() {
   const batch = logBuffer.splice(0, CONFIG.batchSize);
   statistics.bufferSize = logBuffer.length;
   
-  // Save to local backup
-  await saveToLocalBackup(batch);
+  // Separate network logs from special events (drop chatgpt_file_upload if feature off)
+  const networkLogs = batch.filter(log => log.requestId || (log.url && log.type !== 'clickfix_detection' && log.type !== 'javascript_execution' && log.type !== 'chatgpt_file_upload'));
+  const specialEvents = batch.filter(log => {
+    if (!networkLogs.includes(log) && log.type === 'chatgpt_file_upload' && !CONFIG.enableFileUploadMonitor) return false;
+    return !networkLogs.includes(log);
+  });
   
+  // Send special events first (before any await) so we don't lose them if the service worker suspends
   // Format payload to match server's LogEntry structure
   // Server expects: LogEntry { session_id, timestamp, user_agent, logs: Vec<NetworkLog> }
   // NetworkLog: { requestId, url, method, type, blocked, block_reason }
   
-  // Separate network logs from special events
-  const networkLogs = batch.filter(log => log.requestId || (log.url && log.type !== 'clickfix_detection' && log.type !== 'javascript_execution'));
-  const specialEvents = batch.filter(log => !networkLogs.includes(log));
+  // Send special events to dedicated endpoints first
+  if (specialEvents.length > 0) {
+    const securityUrl = CONFIG.serverUrl.replace('/api/logs', '/api/security');
+    console.log('📤 Sending', specialEvents.length, 'special event(s) to', securityUrl);
+    for (const event of specialEvents) {
+      try {
+        const eventType = event.type || event.event_type || 'unknown_event';
+        const isSecurityEvent =
+          eventType === 'clickfix_detection' ||
+          eventType === 'extension_security_scan' ||
+          eventType === 'chatgpt_file_upload';
+
+        const endpoint = isSecurityEvent ? '/api/security' : '/api/extensions';
+        const extensionUrl = CONFIG.serverUrl.replace('/api/logs', endpoint);
+        const extensionPayload = {
+          client_id: clientId || null,
+          session_id: sessionId,
+          timestamp: event.timestamp || new Date().toISOString(),
+          user_agent: navigator.userAgent,
+          event_type: eventType,
+          data: event
+        };
+        
+        const extensionBody = CONFIG.enableCompression 
+          ? await compressData(extensionPayload)
+          : JSON.stringify(extensionPayload);
+        
+        const headers = { 'Content-Type': 'application/json' };
+        if (CONFIG.enableCompression && extensionBody instanceof Uint8Array) {
+          headers['Content-Encoding'] = 'gzip';
+        }
+        
+        const resp = await fetchWithTimeout(extensionUrl, {
+          method: 'POST',
+          headers: headers,
+          body: extensionBody
+        }, CONFIG.fetchTimeoutMs);
+        if (!resp.ok) {
+          console.error('❌ Server rejected special event:', eventType, resp.status, extensionUrl);
+        } else {
+          console.log('✅ Sent', eventType, 'to server', extensionUrl);
+        }
+      } catch (error) {
+        console.error('❌ Failed to send special event to', extensionUrl, error.message || error);
+      }
+    }
+  }
   
+  // Send script-type network logs to /api/extensions as javascript_execution so they appear in JavaScript tab
+  // (ES module imports, etc. don't create <script src> in DOM, so content script misses them; webRequest catches them)
+  const scriptLogs = networkLogs.filter(log => log.type === 'script');
+  if (scriptLogs.length > 0) {
+    const extensionUrl = CONFIG.serverUrl.replace('/api/logs', '/api/extensions');
+    for (const log of scriptLogs) {
+      try {
+        const extensionPayload = {
+          client_id: clientId || null,
+          session_id: sessionId,
+          timestamp: log.timestamp || new Date().toISOString(),
+          user_agent: navigator.userAgent,
+          event_type: 'javascript_execution',
+          data: {
+            scriptUrl: log.url,
+            url: log.pageUrl || log.url,
+            source: 'webRequest',
+            tabId: log.tabId,
+            details: { fromModuleImport: true }
+          }
+        };
+        const extensionBody = CONFIG.enableCompression ? await compressData(extensionPayload) : JSON.stringify(extensionPayload);
+        const headers = { 'Content-Type': 'application/json' };
+        if (CONFIG.enableCompression && extensionBody instanceof Uint8Array) headers['Content-Encoding'] = 'gzip';
+        const resp = await fetchWithTimeout(extensionUrl, { method: 'POST', headers, body: extensionBody }, CONFIG.fetchTimeoutMs);
+        if (resp.ok) console.log('✅ Sent javascript_execution (webRequest):', (log.url || '').slice(0, 60));
+        else console.error('❌ Server rejected script→javascript_execution:', resp.status);
+      } catch (e) {
+        console.error('❌ Failed to send script→javascript_execution:', e.message || e);
+      }
+    }
+  }
+
   // Send network logs to /api/logs
   if (networkLogs.length > 0) {
+    console.log(`📤 Sending ${networkLogs.length} network log(s) to /api/logs:`, networkLogs.map(l => l.type).join(', '));
     const payload = {
       client_id: clientId || null,
       session_id: sessionId,  // Server expects session_id (snake_case)
@@ -738,47 +1014,8 @@ async function sendLogBatch() {
     await sendWithRetry(payload, 0, CONFIG.serverUrl, payloadBody);
   }
   
-  // Send special events to dedicated endpoints:
-  // - Security events (clickfix, extension security scans) -> /api/security
-  // - Other extension events (javascript_execution, extension install/uninstall/etc) -> /api/extensions
-  if (specialEvents.length > 0) {
-    for (const event of specialEvents) {
-      try {
-        const eventType = event.type || event.event_type || 'unknown_event';
-        const isSecurityEvent =
-          eventType === 'clickfix_detection' ||
-          eventType === 'extension_security_scan';
-
-        const endpoint = isSecurityEvent ? '/api/security' : '/api/extensions';
-        const extensionUrl = CONFIG.serverUrl.replace('/api/logs', endpoint);
-        const extensionPayload = {
-          client_id: clientId || null,
-          session_id: sessionId,
-          timestamp: event.timestamp || new Date().toISOString(),
-          user_agent: navigator.userAgent,
-          event_type: eventType,
-          data: event
-        };
-        
-        const extensionBody = CONFIG.enableCompression 
-          ? await compressData(extensionPayload)
-          : JSON.stringify(extensionPayload);
-        
-        const headers = { 'Content-Type': 'application/json' };
-        if (CONFIG.enableCompression && extensionBody instanceof Uint8Array) {
-          headers['Content-Encoding'] = 'gzip';
-        }
-        
-        await fetchWithTimeout(extensionUrl, {
-          method: 'POST',
-          headers: headers,
-          body: extensionBody
-        }, CONFIG.fetchTimeoutMs);
-      } catch (error) {
-        console.error('Failed to send special event:', error);
-      }
-    }
-  }
+  // Save to local backup (after sending so we don't yield before special-event fetch)
+  await saveToLocalBackup(batch);
 }
 
 async function sendWithRetry(payload, attempt, url = null, bodyOverride = null) {
@@ -1285,6 +1522,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   
   // Clickfix detection messages
   if (message.action === 'logClickfixDetection') {
+    const cfKey = `cf:${message.url || ''}:${(message.detection?.codePreview || JSON.stringify(message.detection || {})).slice(0, 200)}`;
+    if (wasRecentlySent(cfKey)) {
+      sendResponse({ success: true, logged: false, deduplicated: true });
+      return true;
+    }
     // Handle clickfix detection - high priority logging
     const clickfixEntry = {
       sessionId,
@@ -1306,30 +1548,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendLogBatch().catch(err => {
       console.error('Failed to send clickfix detection immediately:', err);
     });
-    
-    // Log to console for immediate visibility, but only when high confidence.
-    // This avoids noisy false positives during development.
-    try {
-      const riskScore = message?.detection?.riskScore ?? 0;
-      const forceWarn = message?.detection?.forceConsoleWarn === true || message?.forceConsoleWarn === true;
-      if (forceWarn || riskScore >= 85) {
-        console.warn('🚨 CLICKFIX DETECTED:', {
-          url: message.url,
-          riskScore,
-          issues: message.detection.issues,
-          source: message.source
-        });
-      }
-    } catch (e) {
-      // Ignore console logging failures
-    }
-    
+    // No console.warn: detection is sent to server; avoids alerting anyone
     sendResponse({ success: true, logged: true });
     return true;
   }
   
   // JavaScript execution logs (from content.js)
   if (message.action === 'logJavaScriptExecution') {
+    const tabId = sender.tab?.id ?? 0;
+    const jsKey = `js:${tabId}:${message.scriptUrl || message.url || ''}`;
+    if (wasRecentlySent(jsKey)) {
+      sendResponse({ success: true });
+      return true;
+    }
     logEntry({
       sessionId,
       timestamp: new Date().toISOString(),

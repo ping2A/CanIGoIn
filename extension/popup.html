@@ -584,6 +584,16 @@
           <span class="slider"></span>
         </label>
       </div>
+      <div class="toggle-group">
+        <label for="enableFileUploadMonitor">Report ChatGPT file uploads</label>
+        <label class="switch">
+          <input type="checkbox" id="enableFileUploadMonitor">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="info-box" style="margin-top: 6px;">
+        Detects POST requests to <code>chatgpt.com</code> with path <code>/files</code> and payload (file_name, file_size, use_case). Reported to <code>/api/security</code>.
+      </div>
       <div class="info-box">
         When "Enable all features" is on, all reporting is sent to the server. Server requests use a 5s timeout so the extension does not hang if the server is unavailable.
       </div>

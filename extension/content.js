@@ -26,46 +26,73 @@
     }
   }
 
-  // Only print console warnings for very high confidence detections by default.
-  // (We still send the detection to the background script for logging/analysis.)
-  const CLICKFIX_CONSOLE_WARN_THRESHOLD = 85;
   
-  // Clickfix detection patterns - PowerShell and terminal command detection
+  // Clickfix detection patterns - PowerShell, CMD, VBScript, and Windows abuse (ClickGrab-informed)
   const CLICKFIX_PATTERNS = {
     // PowerShell suspicious commands (most common in clickfix)
     powershellCommands: [
       /powershell\s+-[Ee]xecutionPolicy\s+Bypass/i,
       /powershell\s+-[Ee]ncodedCommand/i,
+      /powershell\s+-[Ee]nc\b/i,
       /powershell\s+-[Cc]ommand/i,
-      /Invoke-Expression/i,  // iex - often used to execute downloaded code
-      /\biex\b/i,  // Alias for Invoke-Expression
-      /Invoke-WebRequest/i,  // iwr - download scripts
-      /\biwr\b/i,  // Alias for Invoke-WebRequest
+      /powershell\s+-[Ww][Ii]\s/i,  // -WindowStyle Hidden
+      /powershell\s+-[Nn][Oo][Pp]\b/i,  // -NoProfile
+      /Invoke-Expression/i,
+      /\biex\b/i,
+      /Invoke-WebRequest/i,
+      /\biwr\b/i,
       /Invoke-RestMethod/i,
       /Start-Process\s+.*powershell/i,
       /New-Object\s+Net\.WebClient/i,
       /\.DownloadString\s*\(/i,
       /\.DownloadFile\s*\(/i,
-      /[Cc]ontent\.compatible/i,  // -UseBasicParsing bypass
-      /FromBase64String/i,  // Base64 decode in PowerShell
+      /[Cc]ontent\.compatible/i,
+      /FromBase64String/i,
       /[Cc]onvert\.FromBase64String/i,
-      /ExpandString/i,  // Variable expansion obfuscation
-      /\.Replace\s*\([^)]+,\s*[^)]+\)/i,  // String replacement (common obfuscation)
+      /ExpandString/i,
+      /\.Replace\s*\([^)]+,\s*[^)]+\)/i,
+    ],
+    // Windows executables commonly abused in ClickFix (cmd, mshta, certutil, etc.)
+    windowsExecutables: [
+      /\bcmd\.exe\s+\/c\b/i,
+      /\bcmd\s+\/c\b/i,
+      /\bmshta\.exe\b/i,
+      /\bmshta\s+(vbscript|http|https):/i,
+      /\bwscript\.exe\b/i,
+      /\bcscript\.exe\b/i,
+      /\bcertutil\s+(-urlcache|-decode)/i,
+      /\bregasm\.exe\b/i,
+      /\bmsbuild\.exe\b/i,
+      /\biexpress\.exe\b/i,
+      /\brundll32\.exe\b/i,
+      /\bforfiles\.exe\b/i,
+      /\b%temp%|%TEMP%|%tmp%/i,
+    ],
+    // VBScript / COM patterns (CreateObject WinHttp, Execute, etc.)
+    vbscriptPatterns: [
+      /CreateObject\s*\(\s*["']WinHttp\.WinHttpRequest/i,
+      /CreateObject\s*\(\s*["']MSXML2\.XMLHTTP/i,
+      /\.Open\s*\(\s*["']GET["']\s*,/i,
+      /\.Send\s*\(\s*\)/i,
+      /\bExecute\s+\w+\.ResponseText/i,
+      /Execute\s*\(/i,
+      /\.ResponseText\s*>/i,  // redirect to file
     ],
     // Base64 encoded commands (very common in clickfix)
     base64Patterns: [
-      /[A-Za-z0-9+\/]{100,}={0,2}/,  // Long base64 strings (likely encoded commands)
+      /[A-Za-z0-9+\/]{100,}={0,2}/,
       /-EncodedCommand\s+[A-Za-z0-9+\/]{50,}={0,2}/i,
       /FromBase64String\s*\(\s*['"]([A-Za-z0-9+\/]{50,}={0,2})['"]/i,
     ],
     // Suspicious URLs and downloads
     suspiciousDownloads: [
-      /http[s]?:\/\/[^\s"'`]+\.(ps1|exe|bat|cmd|vbs|js|jar|sh)/i,  // Downloading scripts
+      /http[s]?:\/\/[^\s"'`]+\.(ps1|exe|bat|cmd|vbs|js|jar|sh)/i,
       /DownloadString\s*\(\s*['"]http/i,
       /DownloadFile\s*\(\s*['"]http/i,
-      /bit\.ly|tinyurl|t\.co|goo\.gl/i,  // URL shorteners (often used in clickfix)
+      /bit\.ly|tinyurl|t\.co|goo\.gl/i,
+      /:\d{4}\/[^\s"'`]+\.(vbs|ps1|exe|bat)/i,  // IP:port/payload.vbs
     ],
-    // JavaScript suspicious patterns (still relevant for web-based clickfix)
+    // JavaScript suspicious patterns (web-based clickfix)
     javascriptPatterns: [
       /document\.cookie\s*=/i,
       /localStorage\.setItem/i,
@@ -79,18 +106,22 @@
     ],
     // Obfuscation indicators
     obfuscationPatterns: [
-      /\\x[0-9a-f]{2}/i,  // Hex escape sequences
-      /\\u[0-9a-f]{4}/i,  // Unicode escape sequences
-      /['"]\s*\+\s*['"]/i,  // String concatenation obfuscation
-      /\$env:|%[A-Za-z]+%/i,  // Environment variable patterns
-      /\$\{[^}]+\}/i,  // Variable expansion
+      /\\x[0-9a-f]{2}/i,
+      /\\u[0-9a-f]{4}/i,
+      /['"]\s*\+\s*['"]/i,
+      /\$env:|%[A-Za-z]+%/i,
+      /\$\{[^}]+\}/i,
     ],
     // Common clickfix patterns
     clickfixPatterns: [
-      /powershell.*base64/i,  // PowerShell with base64
-      /iex.*DownloadString/i,  // Invoke-Expression with download
-      /-EncodedCommand/i,  // Encoded command (hides the actual command)
-      /ExecutionPolicy.*Bypass/i,  // Bypassing execution policy
+      /powershell.*base64/i,
+      /iex.*DownloadString/i,
+      /-EncodedCommand/i,
+      /-Enc\b/i,
+      /ExecutionPolicy.*Bypass/i,
+      /cmd\s*\/c\s+.*powershell/i,
+      /WinHttp\.WinHttpRequest.*Execute/i,
+      /Press\s+(Win|Ctrl)\+[RV]/i,  // "Press Win+R" / "Press Ctrl+V" instructions
     ],
   };
   
@@ -110,7 +141,7 @@
     return entropy;
   }
   
-  // Detect clickfix patterns in code (PowerShell, terminal commands, JavaScript)
+  // Detect clickfix patterns in code (PowerShell, CMD, VBScript, Windows abuse, JavaScript)
   function detectClickfix(code) {
     if (!code || typeof code !== 'string') {
       return null;
@@ -126,8 +157,34 @@
     const isPowerShell = /powershell|iex|Invoke-Expression|Invoke-WebRequest|iwr/i.test(code);
     if (isPowerShell) {
       detectedType = 'powershell';
-      riskScore += 30; // PowerShell commands are inherently more suspicious in clickfix context
+      riskScore += 30;
       issues.push('powershell_command');
+    }
+    
+    // Check for Windows executable abuse (cmd, mshta, certutil, wscript, etc.)
+    let isWindowsExec = false;
+    CLICKFIX_PATTERNS.windowsExecutables.forEach((pattern, index) => {
+      if (pattern.test(code)) {
+        isWindowsExec = true;
+        issues.push(`windows_exec_${index}`);
+        riskScore += 28; // Same tier as PowerShell - these are classic ClickFix vectors
+      }
+    });
+    if (isWindowsExec && detectedType === 'unknown') {
+      detectedType = 'windows_exec';
+    }
+    
+    // Check for VBScript / COM download patterns (CreateObject WinHttp, Execute)
+    let isVbScript = false;
+    CLICKFIX_PATTERNS.vbscriptPatterns.forEach((pattern, index) => {
+      if (pattern.test(code)) {
+        isVbScript = true;
+        issues.push(`vbscript_pattern_${index}`);
+        riskScore += 35; // VBScript download+execute is very common in ClickFix
+      }
+    });
+    if (isVbScript && detectedType === 'unknown') {
+      detectedType = 'vbscript';
     }
     
     // Check for PowerShell suspicious commands
@@ -135,20 +192,20 @@
       if (pattern.test(code)) {
         issues.push(`powershell_command_${index}`);
         riskScore += 25;
-        if (index === 0 || index === 1) {  // -ExecutionPolicy Bypass or -EncodedCommand
-          riskScore += 20; // These are very common in clickfix
+        if (index <= 2) {  // -ExecutionPolicy Bypass, -EncodedCommand, -Enc
+          riskScore += 20;
         }
       }
     });
     
-    // Check for base64 encoded commands (very common in PowerShell clickfix)
+    // Check for base64 encoded commands
     let base64Matches = 0;
     CLICKFIX_PATTERNS.base64Patterns.forEach((pattern) => {
       const matches = code.match(pattern);
       if (matches) {
         base64Matches += matches.length;
         issues.push('base64_encoded_command');
-        riskScore += 30; // Base64 encoded commands are highly suspicious
+        riskScore += 30;
       }
     });
     
@@ -160,15 +217,15 @@
       }
     });
     
-    // Check for common clickfix patterns (PowerShell-specific)
+    // Check for common clickfix patterns
     CLICKFIX_PATTERNS.clickfixPatterns.forEach((pattern) => {
       if (pattern.test(code)) {
         issues.push('clickfix_pattern');
-        riskScore += 35; // These are classic clickfix patterns
+        riskScore += 35;
       }
     });
     
-    // Check for JavaScript patterns (for web-based clickfix)
+    // Check for JavaScript patterns (web-based clickfix)
     CLICKFIX_PATTERNS.javascriptPatterns.forEach((pattern, index) => {
       if (pattern.test(code)) {
         issues.push(`javascript_pattern_${index}`);
@@ -190,9 +247,11 @@
       riskScore += 25;
     }
     
-    // Check code length (long commands are suspicious, especially PowerShell)
-    if (codeTrimmed.length > 200 && isPowerShell) {
-      issues.push('long_powershell_command');
+    const isTerminalCode = isPowerShell || isWindowsExec || isVbScript;
+    
+    // Check code length (long commands are suspicious)
+    if (codeTrimmed.length > 200 && isTerminalCode) {
+      issues.push('long_terminal_command');
       riskScore += 15;
     } else if (codeTrimmed.length > 500) {
       issues.push('long_code_block');
@@ -206,7 +265,7 @@
       riskScore += 20;
     }
     
-    // Check for multiple suspicious patterns together (very suspicious)
+    // Check for multiple suspicious patterns together
     if (issues.length >= 3) {
       riskScore += 25;
     }
@@ -214,24 +273,30 @@
     // High-risk combinations
     if (isPowerShell && base64Matches > 0) {
       issues.push('powershell_base64_combo');
-      riskScore += 40; // PowerShell + Base64 is classic clickfix
+      riskScore += 40;
     }
     
     if (codeTrimmed.includes('iex') && codeTrimmed.includes('DownloadString')) {
       issues.push('iex_download_combo');
-      riskScore += 45; // Very common clickfix pattern
+      riskScore += 45;
     }
     
-    if (codeTrimmed.includes('-EncodedCommand') || codeTrimmed.includes('-Enc')) {
+    if (codeTrimmed.includes('-EncodedCommand') || /-Enc\b/.test(codeTrimmed)) {
       issues.push('encoded_command_flag');
-      riskScore += 40; // Encoded commands hide what they do
+      riskScore += 40;
     }
     
-    // Lower threshold for PowerShell (it's more suspicious in clickfix context)
-    const threshold = isPowerShell ? 40 : 50;
+    // cmd/certutil + VBScript download chain (common ClickFix)
+    if (isWindowsExec && isVbScript) {
+      issues.push('cmd_vbscript_chain');
+      riskScore += 40;
+    }
+    
+    // Lower threshold for PowerShell, CMD, VBScript (they're inherently suspicious)
+    const threshold = isTerminalCode ? 40 : 50;
     
     // If risk score is high enough, flag as clickfix
-    if (riskScore >= threshold || (isPowerShell && issues.length >= 2)) {
+    if (riskScore >= threshold || (isTerminalCode && issues.length >= 2)) {
       return {
         detected: true,
         riskScore: Math.min(riskScore, 100),
@@ -240,7 +305,8 @@
         codeLength: codeTrimmed.length,
         entropy: entropy.toFixed(2),
         type: detectedType,
-        isPowerShell: isPowerShell
+        isPowerShell: isPowerShell,
+        isTerminalCode: isTerminalCode
       };
     }
     
@@ -260,21 +326,7 @@
         userAgent: navigator.userAgent,
         ...details
       }).catch(err => console.error('Failed to send clickfix detection:', err));
-      
-      // Also log to console for debugging, but only when high confidence.
-      // This avoids spamming dev consoles (and avoids "detecting yourself" in local dev).
-      const forceWarn = details && details.forceConsoleWarn === true;
-      const shouldWarn =
-        forceWarn ||
-        (!isDevLikeOrigin() && detection.riskScore >= CLICKFIX_CONSOLE_WARN_THRESHOLD);
-
-      if (shouldWarn) {
-        console.warn('🚨 Clickfix detected!', {
-          riskScore: detection.riskScore,
-          issues: detection.issues,
-          source: source
-        });
-      }
+      // No console.warn: detection is sent to server; warning in console could alert attackers
     }
   }
 
@@ -304,11 +356,6 @@
           clipboardContentLength: trimmedText.length
         }
       }).catch(err => console.error('Failed to send clipboard detection:', err));
-      console.warn('🚨 CLICKFIX DETECTED: Website wrote suspicious content to clipboard!', {
-        content: trimmedText.substring(0, 200),
-        riskScore: detection.riskScore,
-        isPowerShell: detection.isPowerShell
-      });
     } else if (detection && detection.riskScore >= 70) {
       chrome.runtime.sendMessage({
         action: 'logClickfixDetection',
@@ -328,8 +375,11 @@
     const observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
         mutation.addedNodes.forEach((node) => {
+          if (node.nodeType !== Node.ELEMENT_NODE) return;
           if (node.tagName === 'SCRIPT') {
             handleScriptElement(node);
+          } else if (node.querySelectorAll) {
+            node.querySelectorAll('script[src]').forEach(handleScriptElement);
           }
         });
       });
@@ -352,10 +402,15 @@
     if (!scriptElement.src) {
       return; // Skip inline scripts
     }
+    const src = String(scriptElement.src || '');
+    // Skip obviously invalid/broken URLs (e.g. page bug: baseUrl + undefined)
+    if (!src || /\/undefined\/?$|\/null\/?$|^\s*undefined\s*$|^\s*null\s*$/i.test(src)) {
+      return;
+    }
     
     const scriptInfo = {
       url: window.location.href,
-      scriptUrl: scriptElement.src,
+      scriptUrl: src,
       details: {
         type: scriptElement.type || 'text/javascript',
         async: scriptElement.async,
@@ -367,7 +422,7 @@
     };
     
     // Avoid duplicates
-    const key = scriptElement.src;
+    const key = src;
     if (loadedScripts.has(key)) {
       return;
     }
@@ -398,12 +453,13 @@
     const element = originalCreateElement.call(document, tagName);
     
     if (tagName.toLowerCase() === 'script') {
-      // Monitor when src is set
+      // Monitor when src is set (must call handleScriptElement AFTER src is set)
       const originalSrcSet = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src').set;
       Object.defineProperty(element, 'src', {
         set: function(value) {
+          const result = originalSrcSet.call(this, value);
           handleScriptElement(this);
-          return originalSrcSet.call(this, value);
+          return result;
         },
         get: function() {
           return originalSrcSet.call(this);
@@ -438,15 +494,17 @@
       // Skip very short text (likely not malicious)
       if (selectedText.length < 30) return;
       
-      // Check if it's PowerShell or terminal code (even if short, these are suspicious)
+      // Check if it's PowerShell, CMD, VBScript, or Windows exec abuse (even if short, these are suspicious)
       const isPowerShell = /powershell|iex|Invoke-Expression|Invoke-WebRequest|Invoke-RestMethod/i.test(selectedText);
-      const isTerminalCode = /\.ps1|\.bat|\.cmd|\.sh|curl|wget|bash/i.test(selectedText);
-      const hasEncodedCommand = /-EncodedCommand|-Enc|FromBase64String/i.test(selectedText);
+      const isWindowsExec = /\b(cmd\.exe|cmd\s+\/c|mshta|wscript|cscript|certutil|regasm|msbuild|rundll32|forfiles)\b/i.test(selectedText);
+      const isVbScript = /CreateObject\s*\(\s*["']WinHttp|\.ResponseText\s*>|Execute\s*\(/i.test(selectedText);
+      const isTerminalCode = isPowerShell || isWindowsExec || isVbScript || /\.ps1|\.bat|\.cmd|\.vbs|\.sh|curl|wget|bash/i.test(selectedText);
+      const hasEncodedCommand = /-EncodedCommand|-Enc\b|FromBase64String/i.test(selectedText);
       const hasExecutionPolicyBypass = /-ExecutionPolicy.*Bypass/i.test(selectedText);
       
-      // Lower threshold for PowerShell/terminal commands (common in clickfix)
-      const minLength = (isPowerShell || isTerminalCode) ? 20 : 50;
-      const minRiskScore = isPowerShell ? 40 : 60; // PowerShell is more suspicious
+      // Lower threshold for terminal/script code (common in clickfix)
+      const minLength = isTerminalCode ? 20 : 50;
+      const minRiskScore = (isPowerShell || isWindowsExec || isVbScript) ? 40 : 60;
       
       if (selectedText.length > minLength) {
         // Detect clickfix patterns in copied text
@@ -468,8 +526,7 @@
             isTerminalCode: isTerminalCode,
             hasEncodedCommand: hasEncodedCommand,
             hasExecutionPolicyBypass: hasExecutionPolicyBypass,
-            note: `Suspicious ${detection.isPowerShell ? 'PowerShell' : 'code'} copied to clipboard - potential clickfix attack (user may paste this into external terminal)`,
-            forceConsoleWarn: true // Always warn for copy events with suspicious content
+            note: `Suspicious ${detection.isTerminalCode ? detection.type || 'terminal code' : 'code'} copied to clipboard - potential clickfix attack (user may paste this into external terminal)`
           });
         }
       }

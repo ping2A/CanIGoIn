@@ -41,6 +41,7 @@ function loadSettings() {
     'enableJsExecution',
     'enableClickfix',
     'extensionMonitoring',
+    'enableFileUploadMonitor',
     'clientId'
   ], (result) => {
     // Blocking tab
@@ -103,11 +104,15 @@ function loadSettings() {
     document.getElementById('extensionMonitoring').checked = extMon;
     const extMonFeatures = document.getElementById('extensionMonitoringFeatures');
     if (extMonFeatures) extMonFeatures.checked = extMon;
-    // Enable all = all four are checked
+    const fileUploadMonitorEl = document.getElementById('enableFileUploadMonitor');
+    if (fileUploadMonitorEl) {
+      fileUploadMonitorEl.checked = result.enableFileUploadMonitor === true;
+    }
+    // Enable all = all five feature toggles are checked (file upload off by default)
     const enableAll = document.getElementById('enableAllFeatures');
     if (enableAll) {
       enableAll.checked = result.enableReportUrls !== false && result.enableJsExecution !== false &&
-        result.enableClickfix !== false && extMon;
+        result.enableClickfix !== false && extMon && result.enableFileUploadMonitor === true;
     }
   });
 }
@@ -439,12 +444,15 @@ document.getElementById('enableAllFeatures').addEventListener('change', (e) => {
     enableReportUrls: on,
     enableJsExecution: on,
     enableClickfix: on,
-    extensionMonitoring: on
+    extensionMonitoring: on,
+    enableFileUploadMonitor: on
   }, () => {
     document.getElementById('enableReportUrls').checked = on;
     document.getElementById('enableJsExecution').checked = on;
     document.getElementById('enableClickfix').checked = on;
     document.getElementById('extensionMonitoring').checked = on;
+    const fileUploadMonitorEl = document.getElementById('enableFileUploadMonitor');
+    if (fileUploadMonitorEl) fileUploadMonitorEl.checked = on;
     const extMonFeatures = document.getElementById('extensionMonitoringFeatures');
     if (extMonFeatures) extMonFeatures.checked = on;
     if (on) {
@@ -459,10 +467,12 @@ document.getElementById('enableAllFeatures').addEventListener('change', (e) => {
 function updateEnableAllCheckbox() {
   const enableAll = document.getElementById('enableAllFeatures');
   if (!enableAll) return;
+  const fileUploadEl = document.getElementById('enableFileUploadMonitor');
   const allOn = document.getElementById('enableReportUrls').checked &&
     document.getElementById('enableJsExecution').checked &&
     document.getElementById('enableClickfix').checked &&
-    (document.getElementById('extensionMonitoringFeatures') && document.getElementById('extensionMonitoringFeatures').checked);
+    (document.getElementById('extensionMonitoringFeatures') && document.getElementById('extensionMonitoringFeatures').checked) &&
+    (!fileUploadEl || fileUploadEl.checked);
   enableAll.checked = !!allOn;
 }
 
@@ -492,6 +502,14 @@ document.getElementById('extensionMonitoringFeatures').addEventListener('change'
     }
   });
 });
+
+const fileUploadMonitorInput = document.getElementById('enableFileUploadMonitor');
+if (fileUploadMonitorInput) {
+  fileUploadMonitorInput.addEventListener('change', (e) => {
+    chrome.storage.local.set({ enableFileUploadMonitor: e.target.checked });
+    updateEnableAllCheckbox();
+  });
+}
 
 document.getElementById('maxBufferSize').addEventListener('change', (e) => {
   const value = parseInt(e.target.value);
