@@ -407,32 +407,3 @@ cargo run --release
 # 4. Test (optional)
 # Open examples/index.html (e.g. http://localhost:9000/) to trigger clickfix/JS events
 ```
-
----
-
-## 🐛 Troubleshooting
-
-- **Extension slow when server is down** – Ensure “Report URLs” is off if you don’t need it; requests timeout after 5s.
-- **YouTube whitelist not applied** – Reload extension and refresh YouTube; ensure “Enable YouTube Channel Whitelist” is on and channels are saved (e.g. `@PirateSoftware`).
-- **Direct watch link still plays** – Reload the page; the overlay runs after the owner/channel is in the DOM (retries at 200ms, 600ms, 1200ms).
-- **Server “invalid gzip”** – Server does not return 400; it falls back to plain JSON. Check client sends valid gzip when using `Content-Encoding: gzip`.
-
-More: **`server/README.md`**, **`docs/README.md`**.
-
----
-
-## ✅ Summary
-
-| Component   | What you get |
-|------------|----------------|
-| **Extension** | Feature toggles, Client ID, gzip, YouTube whitelist, clickfix (PowerShell/CMD/VBScript/mshta/certutil), deduplication, ES module script detection → `/api/security` & `/api/extensions` |
-| **Server**    | Simple + Production modes, web dashboard, `/api/logs`, `/api/dashboard/*`, gzip decompression, unique packet IDs, `risk_score` for clickfix |
-| **Docs**      | READMEs, API docs, examples, troubleshooting |
-
----
-
-**For detailed instructions:**  
-- **Extension & usage**: `docs/README.md`  
-- **Server**: `server/README.md`  
-- **Quick setup**: `docs/QUICKSTART.md`  
-- **Test page**: `examples/README.md`
